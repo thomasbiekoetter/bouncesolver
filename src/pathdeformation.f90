@@ -10,6 +10,7 @@ module bouncesolver__pathdeformation
     spline_construct
   use evortran__util_interp_spline, only :  &
     spline_getval
+  use gradmin__derivatives, only : gradient
 
   implicit none
 
@@ -71,6 +72,7 @@ module bouncesolver__pathdeformation
     real(wp) :: S
     real(wp) :: Sp
     real(wp) :: Sk
+    real(wp), allocatable :: normal_force(:, :)
   contains
     procedure, private :: allocate_arrays
     procedure, private :: construct_starting_path
@@ -87,11 +89,15 @@ module bouncesolver__pathdeformation
     procedure, private :: check_over_under
     procedure, public :: x_of_rho
     procedure, public :: xdot_of_rho
+    procedure, public :: d2x_of_drho2
     procedure, public :: V_of_rho
     procedure, public :: phi_of_rho
     procedure, public :: dphi_drho
     procedure, private :: clip_solution
     procedure, private :: calc_action
+    procedure, private :: calc_normal_forces
+    procedure, public :: grad_V
+    procedure, private :: dphi_dx
   end type solver
 
   interface solver
@@ -148,17 +154,10 @@ contains
     ! This will have to be a loop
     ! do while (normal forces not zero)
         call this%bounce_on_path()
-    ! call this%get_normal_faces
+        call this%clip_solution()
+        call this%calc_normal_forces()
     ! call this%deform_path
     ! end do
-
-    ! If rho_max too big, then good solution
-    ! might have reached the false minimum
-    ! with velocity ~ 0 but then undershoots
-    ! after a while. This function should
-    ! check for a plateau in x_of_rho at
-    ! x ~ x_false and clip there
-    call this%clip_solution()
 
     call this%calc_action()
 
@@ -786,6 +785,31 @@ contains
 
   end function xdot_of_rho
 
+  function d2x_of_drho2(this, rho) result(dxdot)
+
+    class(solver), intent(inout) :: this
+    real(wp), intent(in) :: rho
+    real(wp) :: dxdot
+
+    real(wp) :: h
+    real(wp) :: xdot_m2
+    real(wp) :: xdot_m1
+    real(wp) :: xdot_p1
+    real(wp) :: xdot_p2
+
+    h = maxval(this%rho_bounce) * 1.0e-6_wp
+
+    xdot_m2 = this%xdot_of_rho(rho)
+    xdot_m1 = this%xdot_of_rho(rho + 1.0e0_wp * h)
+    xdot_p1 = this%xdot_of_rho(rho + 2.0e0_wp * h)
+    xdot_p2 = this%xdot_of_rho(rho + 3.0e0_wp * h)
+
+    dxdot = (-11.0e0_wp * xdot_m2 + 18.0e0_wp * xdot_m1 -  &
+      9.0e0_wp * xdot_p1 + 2.0e0_wp * xdot_p2) /  &
+      (6.0e0_wp * h)
+
+  end function d2x_of_drho2
+
   function V_of_rho(this, rho) result(V)
 
     class(solver), intent(inout) :: this
@@ -811,6 +835,29 @@ contains
     phi = this%phi_of_x(x)
 
   end function phi_of_rho
+
+  function dphi_dx(this, x) result(y)
+
+    class(solver), intent(inout) :: this
+    real(wp), intent(in) :: x
+    real(wp) :: y(this%num_fields)
+
+    real(wp) :: phi1(this%num_fields)
+    real(wp) :: phi2(this%num_fields)
+    real(wp) :: h(this%num_fields)
+    integer :: i
+
+    phi1 = this%phi_of_x(x)
+
+    do i = 1, this%num_fields
+      h(i) = maxval([  &
+        abs(phi1(i)) * eps_gradient,  &
+        1.0e-6_wp])
+      phi2 = this%phi_of_x(x + h(i))
+      y(i) = (phi2(i) - phi1(i)) / h(i)
+    end do
+
+  end function dphi_dx
 
   function dphi_drho(this, rho) result(y)
 
@@ -931,5 +978,98 @@ contains
     end if
 
   end subroutine clip_solution
+
+  subroutine calc_normal_forces(this)
+
+    class(solver), intent(inout) :: this
+
+    integer :: i
+    integer :: n
+    real(wp), allocatable :: rho(:)
+    real(wp), allocatable :: dx_drho(:)
+    real(wp), allocatable :: d2phi_dx2(:, :)
+    real(wp), allocatable :: grad_perp_V(:, :)
+    real(wp), allocatable :: x(:)
+    real(wp) :: phi(this%num_fields)
+    real(wp) :: grad_V(this%num_fields)
+    real(wp) :: pathdir(this%num_fields)
+
+    n = this%i_bounce_clip
+    rho = this%rho_bounce(1:n)
+
+    ! Compute dx / drho along path
+    allocate(dx_drho(n))
+    do i = 1, n
+      dx_drho(i) = this%xdot_of_rho(rho(i))
+    end do
+
+    ! Compute d2 phi_i / dx dx along path
+    allocate(d2phi_dx2(n, this%num_fields))
+    allocate(x(n))
+    do i = 1, n
+      x(i) = this%x_of_rho(rho(i))
+      d2phi_dx2(i, :) = d2p_dx2(x(i))
+    end do
+
+    ! Compute grad_T V(phi_i) along path
+    allocate(grad_perp_V(n, this%num_fields))
+    do i = 1, n
+      phi = this%phi_of_rho(rho(i))
+      grad_V = this%grad_V(phi)
+      pathdir = this%dphi_dx(x(i))
+      grad_perp_V(i, :) = grad_V - dot_product(grad_V, pathdir) * pathdir
+    end do
+
+    ! Compute normal force along path
+    allocate(this%normal_force(n, this%num_fields))
+    do i = 1, n
+      this%normal_force(i, :) = d2phi_dx2(i, :) * dx_drho(i) ** 2 -  &
+        grad_perp_V(i, :)
+    end do
+
+  contains
+
+    function d2p_dx2(x) result(d2p)
+
+      real(wp), intent(in) :: x
+      real(wp) :: d2p(this%num_fields)
+
+      real(wp) :: h
+      real(wp) :: p_m2(this%num_fields)
+      real(wp) :: p_m1(this%num_fields)
+      real(wp) :: p(this%num_fields)
+      real(wp) :: p_p1(this%num_fields)
+      real(wp) :: p_p2(this%num_fields)
+
+      h = maxval(this%x_bounce) * 1.0e-4_wp
+
+      p_m2 = this%phi_of_x(x)
+      p_m1 = this%phi_of_x(x + 1.0e0_wp * h)
+      p = this%phi_of_x(x + 2.0e0_wp * h)
+      p_p1 = this%phi_of_x(x + 3.0e0_wp * h)
+      p_p2 = this%phi_of_x(x + 4.0e0_wp * h)
+      d2p = (35.0e0_wp * p_m2 - 104.0e0_wp * p_m1 +  &
+        114.0e0_wp * p - 56.0e0_wp * p_p1 +  &
+        11.0e0_wp * p_p2) / (12.0e0_wp * h ** 2)
+
+    end function d2p_dx2
+
+  end subroutine calc_normal_forces
+
+  function grad_V(this, phi) result(dV)
+
+    class(solver), intent(inout) :: this
+    real(wp), intent(in) :: phi(this%num_fields)
+    real(wp) :: dV(this%num_fields)
+
+    real(wp) :: V
+    real(wp) :: eps
+
+    V = this%V(phi)
+    eps = V * eps_gradient
+
+    dV = gradient(this%V, phi, eps=eps)
+
+  end function grad_V
 
 end module bouncesolver__pathdeformation
