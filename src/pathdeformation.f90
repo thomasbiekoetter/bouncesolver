@@ -19,6 +19,7 @@ module bouncesolver__pathdeformation
   real(wp), parameter :: eps_gradient = 1.0e-6_wp
   real(wp), parameter :: eps_hessian = 1.0e-4_wp
 
+  integer, parameter :: alpha_default = 2
   real(wp), parameter :: xmin_start = 1.0e-18_wp
 
   abstract interface
@@ -73,6 +74,7 @@ module bouncesolver__pathdeformation
     real(wp) :: Sp
     real(wp) :: Sk
     real(wp), allocatable :: normal_force(:, :)
+    real(wp), allocatable :: para_force(:, :)
   contains
     procedure, private :: allocate_arrays
     procedure, private :: construct_starting_path
@@ -95,7 +97,7 @@ module bouncesolver__pathdeformation
     procedure, public :: dphi_drho
     procedure, private :: clip_solution
     procedure, private :: calc_action
-    procedure, private :: calc_normal_forces
+    procedure, private :: calc_forces
     procedure, public :: grad_V
     procedure, private :: dphi_dx
   end type solver
@@ -126,7 +128,7 @@ contains
     if (present(alpha)) then
       this%alpha = alpha
     else
-      this%alpha = 2
+      this%alpha = alpha_default
     end if
     if (present(rho_max_fac)) then
       this%rho_max_fac = rho_max_fac
@@ -155,7 +157,7 @@ contains
     ! do while (normal forces not zero)
         call this%bounce_on_path()
         call this%clip_solution()
-        call this%calc_normal_forces()
+        call this%calc_forces()
     ! call this%deform_path
     ! end do
 
@@ -979,7 +981,7 @@ contains
 
   end subroutine clip_solution
 
-  subroutine calc_normal_forces(this)
+  subroutine calc_forces(this)
 
     class(solver), intent(inout) :: this
 
@@ -989,6 +991,7 @@ contains
     real(wp), allocatable :: dx_drho(:)
     real(wp), allocatable :: d2phi_dx2(:, :)
     real(wp), allocatable :: grad_perp_V(:, :)
+    real(wp), allocatable :: grad_para_V(:, :)
     real(wp), allocatable :: x(:)
     real(wp) :: phi(this%num_fields)
     real(wp) :: grad_V(this%num_fields)
@@ -1013,11 +1016,13 @@ contains
 
     ! Compute grad_T V(phi_i) along path
     allocate(grad_perp_V(n, this%num_fields))
+    allocate(grad_para_V(n, this%num_fields))
     do i = 1, n
       phi = this%phi_of_rho(rho(i))
       grad_V = this%grad_V(phi)
       pathdir = this%dphi_dx(x(i))
       grad_perp_V(i, :) = grad_V - dot_product(grad_V, pathdir) * pathdir
+      grad_para_V(i, :) = dot_product(grad_V, pathdir) * pathdir
     end do
 
     ! Compute normal force along path
@@ -1025,6 +1030,13 @@ contains
     do i = 1, n
       this%normal_force(i, :) = d2phi_dx2(i, :) * dx_drho(i) ** 2 -  &
         grad_perp_V(i, :)
+    end do
+
+    ! Compute parallel force (needed for convergence condition)
+    ! F = - grad V along path
+    allocate(this%para_force(n, this%num_fields))
+    do i = 1, n
+      this%para_force(i, :) = grad_para_V(i, :)
     end do
 
   contains
@@ -1054,7 +1066,7 @@ contains
 
     end function d2p_dx2
 
-  end subroutine calc_normal_forces
+  end subroutine calc_forces
 
   function grad_V(this, phi) result(dV)
 
