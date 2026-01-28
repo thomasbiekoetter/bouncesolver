@@ -13,3 +13,9 @@ option test --compiler gfortran --flag "-O3 -march=native -fmax-errors=1 -ffixed
 @test-gfortran-debug-quad
 option test --compiler gfortran --flag "-DQUAD -fPIC -O0 -g -fbounds-check -fbacktrace -Wall -Wuninitialized -fmax-errors=1"
 
+@run-gfortran-debug
+option run --compiler gfortran --flag "-fPIC -O0 -g -fbounds-check -fbacktrace -Wall -Wuninitialized -fmax-errors=1"
+
+@run-gfortran
+option run --compiler gfortran --flag "-O3 -march=native -fmax-errors=1 -ffixed-line-length-none -fno-range-check"
+
