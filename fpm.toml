@@ -27,6 +27,10 @@ bspline-fortran = { git="https://github.com/jacobwilliams/bspline-fortran.git" }
 openmp="*"
 [dev-dependencies]
 csv-fortran = { git="https://github.com/jacobwilliams/csv-fortran.git" }
+[[executable]]
+name = "pdm_thickwalled"
+source-dir = "app"
+main = "pdm_thickwalled.f90"
 [[test]]
 name = "quartic"
 source-dir = "test"

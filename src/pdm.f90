@@ -33,9 +33,10 @@ module bouncesolver__pdm
     integer :: alpha
     integer :: n = 1000
     integer :: n_spls = 10
-    integer :: maximum_iterations = 40
+    integer :: maximum_iterations = 100
     real(wp) :: Rforce_threshold = 0.1e0_wp
     real(wp) :: Rforce
+    real(wp) :: Rforce_previous = 1.0e10_wp
     real(wp), allocatable :: phi_false(:)
     real(wp), allocatable :: phi_true(:)
     real(wp), allocatable :: x(:)
@@ -53,6 +54,7 @@ module bouncesolver__pdm
     real(wp) :: S
     real(wp) :: Sp
     real(wp) :: Sk
+    real(wp) :: S0
     real(wp), allocatable :: Nforce(:, :)
     real(wp), allocatable :: Pforce(:, :)
     real(wp), allocatable :: xforce(:)
@@ -136,6 +138,7 @@ contains
       call this%bounce_on_path()
       call this%calc_action()
       write(*,*) "Action = ", this%S, this%Sp, this%Sk
+      if (iteration == 1) this%S0 = this%S
       call this%calc_forces(iteration)
       call this%deform_path()
       call this%check_convergence(iteration, converged)
@@ -443,7 +446,7 @@ contains
         shooting_converged = .false.
       end if
 
-      write(*,*) x_min, x_max, over_under_flag
+!     write(*,*) x_min, x_max, over_under_flag
 
     end do
 
@@ -840,7 +843,7 @@ contains
     rescale = norm2(this%phi_false - this%phi_true)
     rescale = rescale / this%gradV_max
 
-    eps = 0.05e0_wp * rescale
+    eps = 0.02e0_wp * rescale
 
     do i = 1, n
       phi_old = this%phi(i, :)
@@ -940,10 +943,18 @@ contains
       conv = .false.
     end if
 
+    if (this%Rforce > 2 * this%Rforce_previous) then
+      conv = .true.
+      write(*,*) "Stopped before reaching Rforce_threshold"
+      write(*,*) "because Rforce started to increase."
+    end if
+
     if (iteration == this%maximum_iterations) then
       conv = .true.
       write(*,*) "Maximum iterations reached:", this%maximum_iterations
     end if
+
+    this%Rforce_previous = this%Rforce
 
   end subroutine check_convergence
 
