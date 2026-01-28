@@ -14,11 +14,20 @@ plt.plot(
     lw=2,
     label="bouncesolver")
 
+df = df[df['S0'] < 100]
+plt.plot(
+    df['c '],
+    df['S0'],
+    lw=2,
+    color='C1',
+    label="bouncesolver -- straight path")
+
 plt.plot(
     dg['c'],
     dg['S'],
     ls='--',
     lw=2,
+    color='magenta',
     label="CosmoTransitions")
 
 plt.xlabel("c")
