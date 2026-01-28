@@ -13,4 +13,6 @@ module bouncesolver__config
   integer, parameter, public :: wp = dp
 #endif
 
+  character(len=*), parameter, public :: fmt = "(es15.5)"
+
 end module bouncesolver__config
