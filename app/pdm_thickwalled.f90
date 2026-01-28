@@ -12,7 +12,7 @@ program bouncesolver__app_pdm_thickwalled
   real(wp), parameter :: b = 0.2e0_wp
   real(wp), parameter :: cmin = 0.3e0_wp
   real(wp), parameter :: cmax = 0.5e0_wp
-  integer, parameter :: num = 21
+  integer, parameter :: num = 101
   real(wp) :: clist(num)
   real(wp) :: c
 
