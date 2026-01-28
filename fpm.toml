@@ -44,9 +44,9 @@ name = "cosmo"
 source-dir = "test"
 main = "cosmo.f90"
 [[test]]
-name = "cosmopdm"
+name = "pdm_thickwalled"
 source-dir = "test"
-main = "cosmopdm.f90"
+main = "pdm_thickwalled.f90"
 [[test]]
 name = "cosmo1d"
 source-dir = "test"
