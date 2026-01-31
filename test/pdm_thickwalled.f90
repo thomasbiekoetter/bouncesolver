@@ -17,7 +17,7 @@ program bouncesolver__test_cosmopdm
 
   real(wp), parameter :: a = 1.8e0_wp
   real(wp), parameter :: b = 0.2e0_wp
-  real(wp), parameter :: c = 0.3e0_wp
+  real(wp), parameter :: c = 0.2e0_wp
 
   type(solver) :: pd
   integer, parameter :: d = 2
@@ -37,7 +37,12 @@ program bouncesolver__test_cosmopdm
   pd = solver(  &
     d, V,  &
     phi_false, phi_true,  &
-    alpha=2)
+    alpha=2,  &
+    deform_eps=5.0e-2_wp,  &
+    num_odeint=1000,  &
+    num_spline_knots=20,  &
+    max_iter=100,  &
+    verbose_level=1)
 
   call csv_x_of_rho(pd, "plots/tests/thick_walled/x_of_rho.csv")
 
@@ -72,10 +77,10 @@ contains
     real(wp) :: phi_min(d)
     real(wp) :: V_min
 
-    call minimize(V, phi_true, phi_min, V_min, mode=1)
+    call minimize(V, phi_true, phi_min, V_min, maxiter=10000, mode=1)
     phi_true = phi_min
 
-    call minimize(V, phi_false, phi_min, V_min, mode=1)
+    call minimize(V, phi_false, phi_min, V_min, maxiter=10000, mode=1)
     phi_false = phi_min
 
   end subroutine get_minima

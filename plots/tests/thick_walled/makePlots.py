@@ -110,14 +110,37 @@ df = pd.read_csv("phi_of_x.csv")
 fig, ax = plt.subplots()
 
 ax.plot(
-    df['x   '],
-    df['phi1'],
+    df['x     '],
+    df['phi1  '],
     color="C0")
 
 ax.plot(
-    df['x   '],
-    df['phi2'],
-    color="C0")
+    df['x     '],
+    df['phi2  '],
+    color="C0",
+    ls='--')
+
+ax.plot(
+    df['x     '],
+    df['dphi1 '],
+    color="C1")
+
+ax.plot(
+    df['x     '],
+    df['dphi2 '],
+    color="C1",
+    ls='--')
+
+ax.plot(
+    df['x     '],
+    df['d2phi1'],
+    color="C2")
+
+ax.plot(
+    df['x     '],
+    df['d2phi2'],
+    color="C2",
+    ls='--')
 
 plt.savefig("phi_of_x.pdf")
 
