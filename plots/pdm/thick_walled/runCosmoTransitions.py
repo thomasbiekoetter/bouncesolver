@@ -38,7 +38,7 @@ def calc_bounce_with_cosmo(path):
 def main():
     global c
     dcs = []
-    for c in np.linspace(0.3, 0.5, 101):
+    for c in np.linspace(0.1, 0.6, 101):
         x_false = fmin(V, x0=[0, 0])
         x_true = fmin(V, x0=[1, 1])
         path = np.array([x_true, x_false])

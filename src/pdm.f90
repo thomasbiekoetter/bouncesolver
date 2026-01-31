@@ -7,13 +7,17 @@ module bouncesolver__pdm
   use bouncesolver__util, only : is_equal
   use odeint__rk4, only : integrate
   use gradmin__derivatives, only : gradient
+  use gradmin__descent, only : minimize
   use bspline_module, only : bspline_1d
+  use bspline_module, only : get_status_message
+  use cubicsplines__smoothing, only : add_viscosity
 
   implicit none
 
   private
 
-  real(wp), parameter :: eps_gradient = 1.0e-8_wp
+  real(wp), parameter :: eps_gradient = 1.0e-6_wp
+  real(wp), parameter :: eps_hessian = 1.0e-4_wp
 
   integer, parameter :: alpha_default = 2
   real(wp), parameter :: x_min_start = 1.0e-18_wp
@@ -34,9 +38,13 @@ module bouncesolver__pdm
     integer :: n = 1000
     integer :: n_spls = 10
     integer :: maximum_iterations = 100
+    integer :: verbose_level = 1
     real(wp) :: Rforce_threshold = 0.1e0_wp
+    real(wp) :: deform_eps = 2.0e-2_wp
     real(wp) :: Rforce
     real(wp) :: Rforce_previous = 1.0e10_wp
+    real(wp) :: Rforce_initial = 1.0e10_wp
+    real(wp) :: Rforce_best = 1.0e10_wp
     real(wp), allocatable :: phi_false(:)
     real(wp), allocatable :: phi_true(:)
     real(wp), allocatable :: x(:)
@@ -55,6 +63,9 @@ module bouncesolver__pdm
     real(wp) :: Sp
     real(wp) :: Sk
     real(wp) :: S0
+    real(wp) :: S_best = 1.0e10_wp
+    real(wp) :: Sp_best
+    real(wp) :: Sk_best
     real(wp), allocatable :: Nforce(:, :)
     real(wp), allocatable :: Pforce(:, :)
     real(wp), allocatable :: xforce(:)
@@ -66,20 +77,25 @@ module bouncesolver__pdm
     type(bspline_1d), allocatable :: bspls(:)
     integer, allocatable :: iflag_bspls(:)
     integer :: kx_bspls
+    logical :: flag_too_thin = .false.
+    logical :: flag_trivial_solution = .false.
   contains
     procedure, private :: allocate_arrays
     procedure, private :: construct_starting_path
+    procedure, private :: check_minima
+    procedure, private :: phi_of_x
+    procedure, public :: dphi_dx
+    procedure, public :: d2phi_dx2
+    procedure, private :: V_of_x
     procedure, private :: find_x_barrier
     procedure, private :: d2V_dx2
     procedure, private :: estimate_rho_max
-    procedure, private :: get_index_from_x
     procedure, private :: bounce_on_path
     procedure, private :: dV_dx
     procedure, private :: clip_bounce
     procedure, private :: calc_action
     procedure, private :: calc_forces
     procedure, private :: gradV
-    procedure, private :: calc_phi_on_bounce
     procedure, private :: deform_path
     procedure, public :: check_convergence
   end type solver
@@ -92,7 +108,11 @@ contains
 
   function create_solver(  &
     d, V, phi_false, phi_true,  &
-    alpha, rho_max_fac, x_min) result(this)
+    alpha, rho_max_fac, x_min,  &
+    deform_eps, max_iter,  &
+    num_odeint,  &
+    num_spline_knots,  &
+    verbose_level) result(this)
 
     integer, intent(in) :: d
     procedure(V_abstract) :: V
@@ -101,6 +121,11 @@ contains
     integer, intent(in), optional :: alpha
     real(wp), intent(in), optional :: rho_max_fac
     real(wp), intent(in), optional :: x_min
+    real(wp), intent(in), optional :: deform_eps
+    integer, intent(in), optional :: max_iter
+    integer, intent(in), optional :: num_odeint
+    integer, intent(in), optional :: num_spline_knots
+    integer, intent(in), optional :: verbose_level
     type(solver) :: this
 
     logical :: converged
@@ -126,8 +151,29 @@ contains
       this%x_min = x_min_start
     end if
 
+    if (present(verbose_level)) then
+      this%verbose_level = verbose_level
+    end if
+
+    if (present(deform_eps)) then
+      this%deform_eps = deform_eps
+    end if
+
+    if (present(max_iter)) then
+      this%maximum_iterations = max_iter
+    end if
+
+    if (present(num_odeint)) then
+      this%n = num_odeint
+    end if
+
+    if (present(num_spline_knots)) then
+      this%n_spls = num_spline_knots
+    end if
+
     this%kx_bspls = 5
 
+    call this%check_minima()
     call this%allocate_arrays()
     call this%construct_starting_path()
     call this%estimate_rho_max()
@@ -137,12 +183,31 @@ contains
       iteration = iteration + 1
       call this%bounce_on_path()
       call this%calc_action()
-      write(*,*) "Action = ", this%S, this%Sp, this%Sk
+      if (this%flag_too_thin) exit
+      if (this%flag_trivial_solution) exit
+      if (this%verbose_level >= 1) then
+        write(*,*) "Action = ", this%S, this%Sp, this%Sk
+      end if
       if (iteration == 1) this%S0 = this%S
+      if (abs(this%S / this%Sp) > 1.0e2_wp) then
+        write(*,*) "Bounce wrong. Exiting."
+        exit
+      end if
       call this%calc_forces(iteration)
       call this%deform_path()
       call this%check_convergence(iteration, converged)
     end do
+
+    this%S = this%S_best
+    this%Sp = this%Sp_best
+    this%Sk = this%Sk_best
+
+    if (this%verbose_level >= 1) then
+      write(*,*)
+      write(*,*) "Result:"
+      write(*,*) "Action = ", this%S, this%Sp, this%Sk
+      write(*,*) "Force ratio =", this%Rforce_best
+    end if
 
   end function create_solver
 
@@ -173,6 +238,37 @@ contains
 
   end subroutine allocate_arrays
 
+  subroutine check_minima(this)
+
+    class(solver), intent(inout) :: this
+
+    real(wp) :: phi_min(this%d)
+    real(wp) :: V_min
+
+    call minimize(  &
+      this%V, this%phi_true, phi_min, V_min,  &
+      maxiter=10000, mode=1)
+
+    if (norm2(phi_min - this%phi_true) > 10 * eps_gradient) then
+      write(*,*) "Warning: check true minimum."
+      write(*,*) "Using refined phi_true =", phi_min
+      write(*,*) "Given phi_true =", this%phi_true
+      this%phi_true = phi_min
+    end if
+
+    call minimize(  &
+      this%V, this%phi_false, phi_min, V_min,  &
+      maxiter=10000, mode=1)
+
+    if (norm2(phi_min - this%phi_false) > 10 * eps_gradient) then
+      write(*,*) "Warning: check false minimum."
+      write(*,*) "Using refined phi_false =", phi_min
+      write(*,*) "Given phi_false =", this%phi_false
+      this%phi_false = phi_min
+    end if
+
+  end subroutine check_minima
+
   subroutine construct_starting_path(this)
 
     class(solver), intent(inout) :: this
@@ -182,10 +278,16 @@ contains
     real(wp) :: dx(this%n - 1)
     real(wp) :: pot(this%n)
     integer :: i
+    integer :: j
     integer :: n
+    integer :: d
     real(wp) :: dphidx
+    real(wp), allocatable :: x_spline(:)
+    real(wp), allocatable :: phi_spline(:, :)
+    integer :: idx_bspls
 
     n = this%n
+    d = this%d
 
     x = linspace(0.0e0_wp, 1.0e0_wp, n)
 
@@ -210,6 +312,42 @@ contains
       end if
     end do
 
+    allocate(x_spline(this%n_spls))
+    allocate(phi_spline(this%n_spls, d))
+
+    do i = 1, this%n_spls
+      if (i == 1) then
+        x_spline(i) = x(i)
+        phi_spline(i, :) = phi(i, :)
+      else if (i == this%n_spls) then
+        x_spline(i) = x(this%n)
+        phi_spline(i, :) = this%phi_false
+      else
+        j = 1 + (i - 1) * n / this%n_spls
+        x_spline(i) = x(j)
+        phi_spline(i, :) = phi(j, :)
+      end if
+    end do
+
+    do j = 1, d
+      call this%bspls(j)%initialize(  &
+        x_spline,  &
+        phi_spline(:, j), this%kx_bspls, this%iflag_bspls(j))
+      if (this%iflag_bspls(j) /= 0) then
+        write(*,*) 'Error initializing ', j, 'D spline: ' //  &
+          get_status_message(this%iflag_bspls(j))
+        call exit
+      end if
+    end do
+
+    idx_bspls = 0
+    do j = 1, d
+      do i = 1, n
+        call this%bspls(j)%evaluate(  &
+          x(i), idx_bspls, phi(i, j), this%iflag_bspls(j))
+      end do
+    end do
+
     do i = 1, n
       pot(i) = this%V(phi(i, :))
     end do
@@ -220,93 +358,200 @@ contains
 
   end subroutine construct_starting_path
 
-  function d2V_dx2(this, i) result(d2V)
+  function phi_of_x(this, x) result(phi)
 
     class(solver), intent(inout) :: this
-    integer, intent(in) :: i
+    real(wp), intent(in) :: x
+    real(wp) :: phi(this%d)
+
+    integer :: j
+    integer :: idx_bspls
+
+    idx_bspls = 0
+
+    do j = 1, this%d
+      call this%bspls(j)%evaluate(  &
+        x, idx_bspls, phi(j), this%iflag_bspls(j))
+    end do
+
+  end function phi_of_x
+
+  function dphi_dx(this, x) result(dphi)
+
+    class(solver), intent(inout) :: this
+    real(wp), intent(in) :: x
+    real(wp) :: dphi(this%d)
+
+    integer :: j
+    integer :: idx_bspls
+
+    idx_bspls = 1
+
+    do j = 1, this%d
+      call this%bspls(j)%evaluate(  &
+        x, idx_bspls, dphi(j), this%iflag_bspls(j))
+    end do
+
+  end function dphi_dx
+
+  function d2phi_dx2(this, x) result(d2phi)
+
+    class(solver), intent(inout) :: this
+    real(wp), intent(in) :: x
+    real(wp) :: d2phi(this%d)
+
+    integer :: j
+    integer :: idx_bspls
+
+    idx_bspls = 2
+
+    do j = 1, this%d
+      call this%bspls(j)%evaluate(  &
+        x, idx_bspls, d2phi(j), this%iflag_bspls(j))
+    end do
+
+  end function d2phi_dx2
+
+  function V_of_x(this, x) result(V)
+
+    class(solver), intent(inout) :: this
+    real(wp), intent(in) :: x
+    real(wp) :: V
+
+    real(wp) :: phi(this%d)
+
+    phi = this%phi_of_x(x)
+    V = this%V(phi)
+
+  end function V_of_x
+
+  function d2V_dx2(this, x) result(d2V)
+
+    class(solver), intent(inout) :: this
+    real(wp), intent(in) :: x
     real(wp) :: d2V
 
-    real(wp) :: Vm
-    real(wp) :: V0
-    real(wp) :: Vp
-    real(wp) :: hm
-    real(wp) :: hp
-    real(wp) :: pot(this%n)
-    real(wp) :: x(this%n)
+    real(wp) :: V_m2
+    real(wp) :: V_m1
+    real(wp) :: V
+    real(wp) :: V_p1
+    real(wp) :: V_p2
+    real(wp) :: eps
+    logical :: lower_ok
+    logical :: upper_ok
     integer :: n
-    integer :: j
-    integer :: dj
+    integer :: i
 
     n = this%n
-    dj = 1
 
-    x = this%x
-    pot = this%pot
+    V = abs(this%V_of_x(x))
+    eps = maxval([eps_hessian * V, eps_hessian])
 
-    ! For now always use central differences.
-    ! Should be fine if n large because
-    ! d2V(i + 1) ~ d2V(i) ~ d2V(i - 1)
+    lower_ok = (x - 2.0e0_wp * eps) > this%x(1)
+    upper_ok = (x + 2.0e0_wp * eps) < this%x(n)
 
-    if ((i > dj) .and. (i < n - dj)) then
-      j = i
-    else if (i < n - 2 * dj) then
-      j = i + dj
-    else if (i > 2 * dj) then
-      j = i - dj
+    if (lower_ok .and. upper_ok) then
+      ! central
+      V_m2 = this%V_of_x(x - 2.0e0_wp * eps)
+      V_m1 = this%V_of_x(x - 1.0e0_wp * eps)
+      V = this%V_of_x(x)
+      V_p1 = this%V_of_x(x + 1.0e0_wp * eps)
+      V_p2 = this%V_of_x(x + 2.0e0_wp * eps)
+      d2V = (-V_m2 + 16.0e0_wp * V_m1 -  &
+        30.0e0_wp * V + 16.0e0_wp * V_p1 -  &
+        V_p2) / (12.e0_wp * eps ** 2)
+    else if (upper_ok) then
+      ! forward
+      V_m2 = this%V_of_x(x)
+      V_m1 = this%V_of_x(x + 1.0e0_wp * eps)
+      V = this%V_of_x(x + 2.0e0_wp * eps)
+      V_p1 = this%V_of_x(x + 3.0e0_wp * eps)
+      V_p2 = this%V_of_x(x + 4.0e0_wp * eps)
+      d2V = (35.0e0_wp * V_m2 - 104.0e0_wp * V_m1 +  &
+        114.0e0_wp * V - 56.0e0_wp * V_p1 +  &
+        11.0e0_wp * V_p2) / (12.0e0_wp * eps ** 2)
+    else if (lower_ok) then
+      V_m2 = this%V_of_x(x - 4.0e0_wp * eps)
+      V_m1 = this%V_of_x(x - 3.0e0_wp * eps)
+      V = this%V_of_x(x - 2.0e0_wp * eps)
+      V_p1 = this%V_of_x(x - 1.0e0_wp * eps)
+      V_p2 = this%V_of_x(x)
+      d2V = (35.0e0_wp * V_p2 - 104.0e0_wp * V_p1 +  &
+        114.0e0_wp * V - 56.0e0_wp * V_m1 +  &
+        11.0e0_wp * V_m2) / (12.0e0_wp * eps ** 2)
     else
       write(*,*) "Problem in d2V_dx2"
       call exit
     end if
 
-    Vm = pot(j - dj)
-    V0 = pot(j)
-    Vp = pot(j + dj)
-    hm = x(j) - x(j - dj)
-    hp = x(j + dj) - x(j)
-    d2V = 2.0e0_wp * (  &
-      (Vp - V0) / hp -  &
-      (V0 - Vm) / hm) / (hm + hp)
-
   end function d2V_dx2
 
-  function dV_dx(this, i) result(dV)
+  function dV_dx(this, x) result(dV)
 
     class(solver), intent(inout) :: this
-    integer, intent(in) :: i
+    real(wp), intent(in) :: x
     real(wp) :: dV
 
-    real(wp) :: Vm
-    real(wp) :: Vp
-    real(wp) :: h
-    real(wp) :: pot(this%n)
-    real(wp) :: x(this%n)
+    real(wp) :: V_m2
+    real(wp) :: V_m1
+    real(wp) :: V
+    real(wp) :: V_p1
+    real(wp) :: V_p2
+    real(wp) :: eps
+    logical :: lower_ok
+    logical :: upper_ok
     integer :: n
-    integer :: di
+    integer :: i
+!   real(wp) :: blend
+!   real(wp) :: dV_blend
+!   real(wp) :: delta_phi_true(this%d)
 
     n = this%n
-    di = 1
 
-    x = this%x
-    pot = this%pot
+    V = abs(this%V_of_x(x))
+    eps = maxval([eps_gradient * V, eps_gradient])
 
-    if ((i > di) .and. (i < n - di)) then
-      Vm = pot(i - di)
-      Vp = pot(i + di)
-      h = x(i + di) - x(i - di)
-    else if (i < n - 2 * di) then
-      Vm = pot(i)
-      Vp = pot(i + di)
-      h = x(i + di) - x(i)
-    else if (i > 2 * di) then
-      Vm = pot(i - di)
-      Vp = pot(i)
-      h = x(i) - x(i - di)
+    lower_ok = (x - 2.0e0_wp * eps) > this%x(1)
+    upper_ok = (x + 2.0e0_wp * eps) < this%x(n)
+
+    if (lower_ok .and. upper_ok) then
+      ! central
+      V_m2 = this%V_of_x(x - 2.0e0_wp * eps)
+      V_m1 = this%V_of_x(x - 1.0e0_wp * eps)
+      V_p1 = this%V_of_x(x + 1.0e0_wp * eps)
+      V_p2 = this%V_of_x(x + 2.0e0_wp * eps)
+      dV = (-V_p2 + 8.0e0_wp * V_p1 -  &
+        8.0e0_wp * V_m1 + V_m2) / (12.0e0_wp * eps)
+    else if (upper_ok) then
+      ! forward
+      V_m2 = this%V_of_x(x)
+      V_m1 = this%V_of_x(x + 1.0e0_wp * eps)
+      V_p1 = this%V_of_x(x + 2.0e0_wp * eps)
+      V_p2 = this%V_of_x(x + 3.0e0_wp * eps)
+      dV = (-11.0e0_wp * V_m2 + 18.0e0_wp * V_m1 -  &
+        9.0e0_wp * V_p1 + 2.0e0_wp * V_p2) /  &
+        (6.0e0_wp * eps)
+    else if (lower_ok) then
+      V_m2 = this%V_of_x(x - 4.0e0_wp * eps)
+      V_m1 = this%V_of_x(x - 3.0e0_wp * eps)
+      V = this%V_of_x(x - 2.0e0_wp * eps)
+      V_p1 = this%V_of_x(x - 1.0e0_wp * eps)
+      V_p2 = this%V_of_x(x)
+      dV = (25.0e0_wp * V_p2 - 48.0e0_wp * V_p1 +  &
+        36.0e0_wp * V - 16.0e0_wp * V_m1 +  &
+        3.0e0_wp * V_m2) / (12.0e0_wp * eps)
     else
-      write(*,*) "Problem in dV_dx"
-      call exit
+      dV = 0.0e0_wp
+      this%flag_trivial_solution = .true.
     end if
 
-    dV = (Vp - Vm) / h
+!   delta_phi_true = this%phi_of_x(x) - this%phi_true
+!   if (norm2(delta_phi_true) < eps) then
+!     dV_blend = this%d2V_dx2(x) * (x - this%x(1))
+!     write(*,*) dV, dV_blend
+!     blend = exp(-(norm2(delta_phi_true) / eps) ** 2)
+!     dV = dV * (1.0e0_wp - blend) + dV_blend * blend
+!   end if
 
   end function dV_dx
 
@@ -315,69 +560,11 @@ contains
     class(solver), intent(inout) :: this
     real(wp) :: msq_false
 
-    msq_false = this%d2V_dx2(this%n)
+    msq_false = this%d2V_dx2(this%x(this%n))
 
     this%rho_max = this%rho_max_fac * sqrt(msq_false)
 
   end subroutine estimate_rho_max
-
-  subroutine get_index_from_x(this, a, ia, overshot)
-
-    class(solver), intent(inout) :: this
-    real(wp), intent(in) :: a
-    integer, intent(out) :: ia
-    logical, optional :: overshot
-
-    real(wp) :: x(this%n)
-    integer :: n
-    integer :: low
-    integer :: high
-    integer :: mid
-    logical :: os
-
-    n = this%n
-    x = this%x
-
-    os = .false.
-
-    if (a <= x(1)) then
-
-      ia = 1
-
-    else if (a >= x(n)) then
-
-      ia = n
-      os = .true.
-
-    else
-
-      low = 1
-      high = n
-
-      do while (high - low > 1)
-        mid = (low + high) / 2
-        if (x(mid) == a) then
-          ia = mid
-          return
-        else if (x(mid) < a) then
-          low = mid
-        else
-          high = mid
-        end if
-      end do
-
-      if (abs(x(low) - a) <= abs(x(high) -a)) then
-        ia = low
-      else
-        ia = high
-      end if
-    end if
-
-    if (present(overshot)) then
-      overshot = os
-    end if
-
-  end subroutine get_index_from_x
 
   subroutine bounce_on_path(this)
 
@@ -396,6 +583,9 @@ contains
     real(wp), allocatable :: rho(:)
     real(wp), allocatable :: x(:, :)
     integer :: i
+
+    real(wp) :: temp
+    real(wp) :: temp2(this%d)
 
     n = this%n
     x_min = this%x_min
@@ -446,23 +636,25 @@ contains
         shooting_converged = .false.
       end if
 
-!     write(*,*) x_min, x_max, over_under_flag
+      if (this%verbose_level >= 2) then
+        write(*,*) x_min, x_max, over_under_flag
+      end if
 
     end do
+
+    if (is_equal(x_max / this%x_min, 1.0e0_wp, eps=1.0e-10_wp)) then
+      this%flag_too_thin = .true.
+    end if
 
     this%rho = rho
     this%xb = x(:, 1)
     this%xbdot = x(:, 2)
+    this%x = this%xb
     do i = 1, n
-      call this%get_index_from_x(  &
-        this%xb(i),  &
-        this%ixs(i))
+      this%phi(i, :) = this%phi_of_x(this%x(i))
     end do
-
-    call this%calc_phi_on_bounce()
-
     do i = 1, n
-      this%pot(i) = this%V(this%phi(i, :))
+      this%pot(i) = this%V_of_x(this%x(i))
     end do
 
     contains
@@ -477,11 +669,15 @@ contains
 
         allocate(xdot(2))
 
-        call this%get_index_from_x(x(1), ix, overshot)
+        if (x(1) > this%x(this%n)) then
+          overshot = .true.
+        else
+          overshot = .false.
+        end if
 
         if (.not. overshot) then
           xdot(1) = x(2)
-          xdot(2) = this%dV_dx(ix) -  &
+          xdot(2) = this%dV_dx(x(1)) -  &
             this%alpha * x(2) / rho
         else
           xdot(1) = 0.0e0_wp
@@ -491,61 +687,6 @@ contains
       end function dxdrho
 
   end subroutine bounce_on_path
-
-  subroutine calc_phi_on_bounce(this)
-
-    class(solver), intent(inout) :: this
-
-    real(wp) :: x(this%n)
-    real(wp) :: xb(this%n)
-    real(wp) :: phi(this%n, this%d)
-    real(wp) :: phib(this%n, this%d)
-    integer :: ixs(this%n)
-    integer :: n
-    integer :: i
-    integer :: j
-    real(wp) :: x1
-    real(wp) :: x2
-    real(wp) :: dx
-    real(wp) :: phi1(this%d)
-    real(wp) :: phi2(this%d)
-    real(wp) :: dphi(this%d)
-
-    n = this%n
-    x = this%x
-    xb = this%xb
-    phi = this%phi
-    ixs = this%ixs
-
-    do i = 1, n
-      j = ixs(i)
-      if (j == n) then
-        phib(i, :) = phi(i, :)
-      else
-        if (xb(i) > x(j)) then
-          x1 = x(j)
-          x2 = x(j + 1)
-          dx = x2 - x1
-          dphi = phi(j + 1, :) - phi(j, :)
-          phib(i, :) = phi(j, :) +  &
-            ((xb(i) - x1) / dx) * dphi
-        else if (xb(i) < x(j)) then
-          x1 = x(j - 1)
-          x2 = x(j)
-          dx = x2 - x1
-          dphi = phi(j, :) - phi(j - 1, :)
-          phib(i, :) = phi(j - 1, :) +  &
-            ((xb(i) - x1) / dx) * dphi
-        else
-          phib(i, :) = phi(i, :)
-        end if
-      end if
-    end do
-
-    this%x = xb
-    this%phi = phib
-
-  end subroutine calc_phi_on_bounce
 
   function find_x_barrier(this) result(x_barrier)
 
@@ -600,10 +741,12 @@ contains
         clip_range = 0
       end if
       if (clip_range == 10) then
-        write(*,"(a,I5,a,ES12.3)")  &
-          "Clipped solution" // &
-          "at rho(",  i - 1, ") = ",  &
-          this%rho(i - 1)
+        if (this%verbose_level >= 2) then
+          write(*,"(a,I5,a,ES12.3)")  &
+            "Clipped solution" // &
+            "at rho(",  i - 1, ") = ",  &
+            this%rho(i - 1)
+        end if
         exit
       end if
     end do
@@ -684,7 +827,7 @@ contains
     real(wp) :: h
 
     V = abs(this%V(phi))
-    h = maxval([V * eps_gradient, 1.0e-12_wp])
+    h = maxval([V * eps_gradient, eps_gradient])
 
     dV = gradient(this%V, phi, eps=h)
 
@@ -723,21 +866,7 @@ contains
       dx_drho = 0.0e0_wp
     else
       do i = 1, n
-        do j = 1, this%d
-          if (i == 1) then
-            d2phi_dx2(i, j) = dT_step(  &
-              phi(1, j), phi(2, j), phi(3, j),  &
-              x(1), x(2), x(3))
-          else if (i == n) then
-            d2phi_dx2(i, j) = dT_step(  &
-              phi(n - 2, j), phi(n - 1, j), phi(n, j),  &
-              x(n - 2), x(n - 1), x(n))
-          else
-            d2phi_dx2(i, j) = dT_step(  &
-              phi(i - 1, j), phi(i, j), phi(i + 1, j),  &
-              x(i - 1), x(i), x(i + 1))
-          end if
-        end do
+        d2phi_dx2(i, :) = this%d2phi_dx2(x(i))
       end do
     end if
 
@@ -751,17 +880,12 @@ contains
     this%gradV_max = maxval(gradV_len)
 
     do i = 1, n
-      if (i == 1) then
-        pathdir(i, :) = (phi(2, :) - phi(1, :)) / (x(2) - x(1))
-      else if (i == n) then
-        pathdir(i, :) = (phi(n, :) - phi(n - 1, :)) / (x(n) - x(n - 1))
-      else
-        pathdir(i, :) = (phi(i + 1, :) - phi(i - 1, :)) / (x(i + 1) - x(i - 1))
-      end if
-      if (.not. is_equal(norm2(pathdir(i, :)), 1.0e0_wp, eps=1.0e-3_wp)) then
-        write(*,*) "Problem with pathdir in calc_forces."
-        write(*,*) i, pathdir(i, :), norm2(pathdir(i, :))
-!       call exit
+      pathdir(i, :) = this%dphi_dx(x(i))
+      if (this%verbose_level >= 3) then
+        if (.not. is_equal(norm2(pathdir(i, :)), 1.0e0_wp, eps=1.0e-2_wp)) then
+          write(*,*) "Problem with pathdir in calc_forces."
+          write(*,*) i, pathdir(i, :), norm2(pathdir(i, :))
+        end if
       end if
     end do
 
@@ -843,7 +967,7 @@ contains
     rescale = norm2(this%phi_false - this%phi_true)
     rescale = rescale / this%gradV_max
 
-    eps = 0.02e0_wp * rescale
+    eps = this%deform_eps * rescale
 
     do i = 1, n
       phi_old = this%phi(i, :)
@@ -857,17 +981,22 @@ contains
     x_spline = linspace(0.0e0_wp, 1.0e0_wp, this%n_spls)
     do i = 1, this%n_spls
       if (i == 1) then
-        ! Extend path slightly beyond release point towards
-        ! true minimum to avoid boundary artifacts in the
-        ! spline interpolation
-        phi_spline(i, :) = phi_deformed(1, :) -  &
-          1.0e2_wp * (phi_deformed(2, :) - phi_deformed(1, :))
+        phi_spline(i, :) = phi_deformed(1, :)
       else if (i == this%n_spls) then
         phi_spline(i, :) = this%phi_false
       else
         j = 1 + (i - 1) * n / this%n_spls
         phi_spline(i, :) = phi_deformed(j, :)
       end if
+    end do
+
+    do j = 1, d
+      phi_spline(:, j) = add_viscosity(  &
+        x_spline,  &
+        phi_spline(:, j),  &
+        this%n_spls,  &
+        eps=2.0e0_wp,  &
+        iterations=100)
     end do
 
     ! Construct B-spline approximation to get path with
@@ -877,6 +1006,11 @@ contains
       call this%bspls(j)%initialize(  &
         x_spline,  &
         phi_spline(:, j), this%kx_bspls, this%iflag_bspls(j))
+      if (this%iflag_bspls(j) /= 0) then
+        write(*,*) 'Error initializing ', j, 'D spline: ' //  &
+          get_status_message(this%iflag_bspls(j))
+        call exit
+      end if
     end do
 
     n = this%n
@@ -903,7 +1037,7 @@ contains
       if (.not. is_equal(abs(dphidx), 1.0e0_wp)) then
         write(*,*) "spline path went wrong"
         write(*,*) i, dphidx
-        call exit
+!       call exit
       end if
     end do
 
@@ -911,6 +1045,32 @@ contains
     this%phi = phi
     do i = 1, n
       this%pot(i) = this%V(this%phi(i, :))
+    end do
+
+    ! Above I changed x such that |d phi / d x| = 1
+    !   -> Construct spline again with new x
+    do i = 1, this%n_spls
+      if (i == 1) then
+        x_spline(i) = x(i)
+        phi_spline(i, :) = phi(i, :)
+      else if (i == this%n_spls) then
+        x_spline(i) = x(this%n)
+        phi_spline(i, :) = this%phi_false
+      else
+        j = 1 + (i - 1) * n / this%n_spls
+        x_spline(i) = x(j)
+        phi_spline(i, :) = phi(j, :)
+      end if
+    end do
+    do j = 1, d
+      call this%bspls(j)%initialize(  &
+        x_spline,  &
+        phi_spline(:, j), this%kx_bspls, this%iflag_bspls(j))
+      if (this%iflag_bspls(j) /= 0) then
+        write(*,*) 'Error initializing ', j, 'D spline: ' //  &
+          get_status_message(this%iflag_bspls(j))
+        call exit
+      end if
     end do
 
     ! Reduce rho_max if initial guess
@@ -934,10 +1094,26 @@ contains
     P_max = maxval(abs(this%Pforce))
 
     this%Rforce = N_max / P_max
-    write(*,*) "Force ratio =", this%Rforce
+    if (this%verbose_level >= 1) then
+      write(*,*) "Force ratio =", this%Rforce
+    end if
+
+    if (iteration == 1) then
+      this%Rforce_initial = this%Rforce
+    end if
+
+    if (this%Rforce < this%Rforce_best) then
+      this%Rforce_best = this%Rforce
+      this%S_best = this%S
+      this%Sp_best = this%Sp
+      this%Sk_best = this%Sk
+    end if
 
     if (this%Rforce < this%Rforce_threshold) then
       conv = .true.
+      if (this%verbose_level >= 1) then
+        write(*,*) "Converged succesfully. Force ratio:", this%Rforce
+      end if
       return
     else
       conv = .false.
@@ -945,13 +1121,41 @@ contains
 
     if (this%Rforce > 2 * this%Rforce_previous) then
       conv = .true.
-      write(*,*) "Stopped before reaching Rforce_threshold"
-      write(*,*) "because Rforce started to increase."
+      if (this%verbose_level >= 1) then
+        write(*,*) "Stopped before reaching Rforce_threshold"
+        write(*,*) "because Rforce started to increase."
+      end if
+    end if
+
+    if ((this%Rforce > 1.5e0_wp * this%Rforce_initial) .and.  &
+      (iteration > 10)) then
+      conv = .true.
+      if (this%verbose_level >= 1) then
+        write(*,*) "Stopped before reaching Rforce_threshold"
+        write(*,*) "because Rforce increase above the one of"
+        write(*,*) "straight-path approximation."
+      end if
     end if
 
     if (iteration == this%maximum_iterations) then
       conv = .true.
-      write(*,*) "Maximum iterations reached:", this%maximum_iterations
+      if (this%verbose_level >= 1) then
+        write(*,*) "Maximum iterations reached:", this%maximum_iterations
+      end if
+    end if
+
+    if (is_equal(this%Rforce / this%Rforce_previous, 1.0e0_wp, eps=1.0e-2_wp)) then
+      this%deform_eps = 2.0e0_wp * this%deform_eps
+      if (this%verbose_level >= 1) then
+        write(*,*) "Slow convergence: Increased deform_eps to", this%deform_eps
+      end if
+    end if
+
+    if (this%Rforce / this%Rforce_previous > 1.0e0_wp) then
+      this%deform_eps = 0.5e0_wp * this%deform_eps
+      if (this%verbose_level >= 1) then
+        write(*,*) "Bad deformation: Decrease deform_eps to", this%deform_eps
+      end if
     end if
 
     this%Rforce_previous = this%Rforce

@@ -135,24 +135,38 @@ contains
 
   subroutine csv_phi_of_x(pd, filename)
 
-    type(solver), intent(in) :: pd
+    type(solver), intent(inout) :: pd
     character(len=*), intent(in) :: filename
 
     integer :: i
+    real(wp) :: dphi(pd%n, pd%d)
+    real(wp) :: d2phi(pd%n, pd%d)
 
     call f%initialize(verbose=.true.)
 
+    do i = 1, pd%n
+      dphi(i, :) = pd%dphi_dx(pd%x(i))
+    end do
+
+    do i = 1, pd%n
+      d2phi(i, :) = pd%d2phi_dx2(pd%x(i))
+    end do
+
     call f%open(  &
       trim(filename),  &
-      n_cols=3,  &
+      n_cols=7,  &
       status_ok=status_ok)
 
-    call f%add(["x   ", "phi1", "phi2"])
+    call f%add([  &
+      "x     ", "phi1  ", "phi2  ", "dphi1 ",  &
+      "dphi2 ", "d2phi1", "d2phi2"])
     call f%next_row()
 
     do i = 1, pd%n
       call f%add(  &
-        [pd%x(i), pd%phi(i, 1), pd%phi(i, 2)],  &
+        [  &
+          pd%x(i), pd%phi(i, 1), pd%phi(i, 2), dphi(i, 1),  &
+          dphi(i, 2), d2phi(i, 1), d2phi(i, 2)],  &
         real_fmt=fmt)
       call f%next_row()
     end do

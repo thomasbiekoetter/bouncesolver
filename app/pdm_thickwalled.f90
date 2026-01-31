@@ -10,13 +10,14 @@ program bouncesolver__app_pdm_thickwalled
 
   real(wp), parameter :: a = 1.8e0_wp
   real(wp), parameter :: b = 0.2e0_wp
-  real(wp), parameter :: cmin = 0.3e0_wp
-  real(wp), parameter :: cmax = 0.5e0_wp
+  real(wp), parameter :: cmin = 0.1e0_wp
+  real(wp), parameter :: cmax = 0.6e0_wp
   integer, parameter :: num = 101
   real(wp) :: clist(num)
   real(wp) :: c
 
-  type(solver) :: pd
+  type(solver) :: pd1
+  type(solver) :: pd2
   integer, parameter :: d = 2
   real(wp) :: phi_false(d) = [0.0e0_wp, 0.0e0_wp]
   real(wp) :: phi_true(d) = [1.0e0_wp, 1.0e0_wp]
@@ -37,19 +38,41 @@ program bouncesolver__app_pdm_thickwalled
 
     c = clist(i)
 
+    write(*,*)
+    write(*,*)
+    write(*,*) "RUN: ", i
+    write(*,*) "  c =", c
+    write(*,*)
+
     call minimize(  &
-      V, phi_true, phi_min, V_min, mode=1)
+      V, phi_true, phi_min, V_min, maxiter=10000, mode=1)
     phi_true = phi_min
 
     call minimize(  &
-      V, phi_false, phi_min, V_min, mode=1)
+      V, phi_false, phi_min, V_min, maxiter=10000, mode=1)
     phi_false = phi_min
 
-    pd = solver(  &
-      d, V, phi_false, phi_true)
+    pd1 = solver(  &
+      d, V,  &
+      phi_false, phi_true,  &
+      deform_eps=2.0e-2_wp,  &
+      num_spline_knots=50,  &
+      max_iter=100,  &
+      verbose_level=1)
 
     call write_line(  &
-      c, pd%S, pd%Sp, pd%Sk, pd%S0)
+      1, c, pd1%S, pd1%Sp, pd1%Sk, pd1%S0)
+
+    pd2 = solver(  &
+      d, V,  &
+      phi_false, phi_true,  &
+      deform_eps=5.0e-2_wp,  &
+      num_spline_knots=20,  &
+      max_iter=100,  &
+      verbose_level=1)
+
+    call write_line(  &
+      2, c, pd2%S, pd2%Sp, pd2%Sk, pd2%S0)
 
   end do
 
@@ -73,15 +96,16 @@ contains
     call f%initialize(verbose=.true.)
     call f%open(  &
       "plots/pdm/thick_walled/data.csv",  &
-      n_cols=5,  &
+      n_cols=6,  &
       status_ok=status_ok)
-    call f%add(["c ", "S ", "Sp", "Sk", "S0"])
+    call f%add(["id", "c ", "S ", "Sp", "Sk", "S0"])
     call f%next_row()
 
   end subroutine create_datafile
 
-  subroutine write_line(c, S, Sp, Sk, S0)
+  subroutine write_line(id, c, S, Sp, Sk, S0)
 
+    integer, intent(in) :: id
     real(wp), intent(in) :: c
     real(wp), intent(in) :: S
     real(wp), intent(in) :: Sp
@@ -89,7 +113,7 @@ contains
     real(wp), intent(in) :: S0
 
     call f%add(  &
-      [c, S, Sp, Sk, S0],  &
+      [real(id, wp), c, S, Sp, Sk, S0],  &
       real_fmt="(es15.5)")
     call f%next_row()
 
