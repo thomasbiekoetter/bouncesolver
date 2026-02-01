@@ -8,6 +8,7 @@ module bouncesolver__pdm
   use odeint__rk4, only : integrate
   use gradmin__derivatives, only : gradient
   use bspline_module, only : bspline_1d
+  use cubicsplines__smoothing, only : add_viscosity
 
   implicit none
 
@@ -65,7 +66,6 @@ module bouncesolver__pdm
     real(wp), allocatable :: Pforce(:, :)
     real(wp), allocatable :: xforce(:)
     real(wp) :: grad_V_max_on_path
-    integer :: current_iteration
     integer, allocatable :: ixs(:)
     real(wp) :: gradV_max
     real(wp), allocatable :: phi_deformed(:, :)
@@ -82,6 +82,7 @@ module bouncesolver__pdm
     real(wp), allocatable :: Nforce_best(:, :)
     real(wp), allocatable :: Pforce_best(:, :)
     integer :: ib_max_best
+    logical :: smoothing = .false.
   contains
     procedure, private :: allocate_arrays
     procedure, private :: construct_starting_path
@@ -110,6 +111,7 @@ contains
     d, V, phi_false, phi_true,  &
     alpha, rho_max_fac, x_min,  &
     maxiter, deform_eps,  &
+    smoothing,  &
     verbose_level) result(this)
 
     integer, intent(in) :: d
@@ -121,6 +123,7 @@ contains
     real(wp), intent(in), optional :: x_min
     integer, intent(in), optional :: maxiter
     real(wp), intent(in), optional :: deform_eps
+    logical, intent(in), optional :: smoothing
     integer, intent(in), optional :: verbose_level
     type(solver) :: this
 
@@ -150,6 +153,8 @@ contains
     if (present(maxiter)) this%maximum_iterations = maxiter
 
     if (present(deform_eps)) this%deform_eps = deform_eps
+
+    if (present(smoothing)) this%smoothing = smoothing
 
     if (present(verbose_level)) this%verbose_level = verbose_level
 
@@ -188,8 +193,9 @@ contains
     if (this%verbose_level >= 1) then
       write(*,*)
       write(*,*) "Result:"
-      write(*,*) "Action = ", this%S, this%Sp, this%Sk
-      write(*,*) "Force ratio =", this%Rforce_best
+      write(*,*) "  Action = ", this%S, this%Sp, this%Sk
+      write(*,*) "  Force ratio =", this%Rforce_best
+      write(*,*) "  Iterations =", iteration
     end if
 
   end function create_solver
@@ -579,6 +585,17 @@ contains
       j = ixs(i)
       if (j == n) then
         phib(i, :) = phi(i, :)
+      else if (j == 1) then
+        if (xb(i) > x(j)) then
+          x1 = x(j)
+          x2 = x(j + 1)
+          dx = x2 - x1
+          dphi = phi(j + 1, :) - phi(j, :)
+          phib(i, :) = phi(j, :) +  &
+            ((xb(i) - x1) / dx) * dphi
+        else
+          phib(i, :) = phi(j, :)
+        end if
       else
         if (xb(i) > x(j)) then
           x1 = x(j)
@@ -928,6 +945,15 @@ contains
       end if
     end do
 
+!   do j = 1, d
+!     phi_spline(:, j) = add_viscosity(  &
+!       x_spline,  &
+!       phi_spline(:, j),  &
+!       this%n_spls,  &
+!       eps=1.0e0_wp,  &
+!       iterations=10)
+!   end do
+
     ! Construct B-spline approximation to get path with
     ! this%n points and for more precise calculation
     ! of d2phi_dx2
@@ -947,6 +973,17 @@ contains
           x(i), idx_bspls, phi(i, j), this%iflag_bspls(j))
       end do
     end do
+
+    if (this%smoothing) then
+      do j = 1, d
+        phi(:, j) = add_viscosity(  &
+          x,  &
+          phi(:, j),  &
+          n,  &
+          eps=2.0e0_wp,  &
+          iterations=200)
+      end do
+    end if
 
     do i = 1, n - 1
       dx(i) = norm2(phi(i + 1, :) - phi(i, :))
