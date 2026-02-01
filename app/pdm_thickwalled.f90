@@ -10,8 +10,8 @@ program bouncesolver__app_pdm_thickwalled
 
   real(wp), parameter :: a = 1.8e0_wp
   real(wp), parameter :: b = 0.2e0_wp
-  real(wp), parameter :: cmin = 0.3e0_wp
-  real(wp), parameter :: cmax = 0.5e0_wp
+  real(wp), parameter :: cmin = 0.1e0_wp
+  real(wp), parameter :: cmax = 0.6e0_wp
   integer, parameter :: num = 101
   real(wp) :: clist(num)
   real(wp) :: c
@@ -37,16 +37,23 @@ program bouncesolver__app_pdm_thickwalled
 
     c = clist(i)
 
+
+    write(*,*)
+    write(*,*)
+    write(*,*) "RUN: ", i
+    write(*,*) "  c =", c
+    write(*,*)
+
     call minimize(  &
-      V, phi_true, phi_min, V_min, mode=1)
+      V, phi_true, phi_min, V_min, maxiter=10000, mode=1)
     phi_true = phi_min
 
     call minimize(  &
-      V, phi_false, phi_min, V_min, mode=1)
+      V, phi_false, phi_min, V_min, maxiter=10000, mode=1)
     phi_false = phi_min
 
     pd = solver(  &
-      d, V, phi_false, phi_true)
+      d, V, phi_false, phi_true, maxiter=200)
 
     call write_line(  &
       c, pd%S, pd%Sp, pd%Sk, pd%S0)
