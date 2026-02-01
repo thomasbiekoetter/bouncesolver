@@ -32,11 +32,13 @@ module bouncesolver__pdm
     integer :: d
     integer :: alpha
     integer :: n = 1000
-    integer :: n_spls = 10
+    integer :: n_spls = 20
     integer :: maximum_iterations = 100
+    integer :: verbose_level = 1
     real(wp) :: Rforce_threshold = 0.1e0_wp
     real(wp) :: Rforce
     real(wp) :: Rforce_previous = 1.0e10_wp
+    real(wp) :: deform_eps = 0.02e0_wp
     real(wp), allocatable :: phi_false(:)
     real(wp), allocatable :: phi_true(:)
     real(wp), allocatable :: x(:)
@@ -92,7 +94,9 @@ contains
 
   function create_solver(  &
     d, V, phi_false, phi_true,  &
-    alpha, rho_max_fac, x_min) result(this)
+    alpha, rho_max_fac, x_min,  &
+    maxiter, deform_eps,  &
+    verbose_level) result(this)
 
     integer, intent(in) :: d
     procedure(V_abstract) :: V
@@ -101,6 +105,9 @@ contains
     integer, intent(in), optional :: alpha
     real(wp), intent(in), optional :: rho_max_fac
     real(wp), intent(in), optional :: x_min
+    integer, intent(in), optional :: maxiter
+    real(wp), intent(in), optional :: deform_eps
+    integer, intent(in), optional :: verbose_level
     type(solver) :: this
 
     logical :: converged
@@ -125,6 +132,12 @@ contains
     else
       this%x_min = x_min_start
     end if
+
+    if (present(maxiter)) this%maximum_iterations = maxiter
+
+    if (present(deform_eps)) this%deform_eps = deform_eps
+
+    if (present(verbose_level)) this%verbose_level = verbose_level
 
     this%kx_bspls = 5
 
@@ -843,7 +856,7 @@ contains
     rescale = norm2(this%phi_false - this%phi_true)
     rescale = rescale / this%gradV_max
 
-    eps = 0.02e0_wp * rescale
+    eps = this%deform_eps * rescale
 
     do i = 1, n
       phi_old = this%phi(i, :)
@@ -952,6 +965,20 @@ contains
     if (iteration == this%maximum_iterations) then
       conv = .true.
       write(*,*) "Maximum iterations reached:", this%maximum_iterations
+    end if
+
+!   if (is_equal(this%Rforce / this%Rforce_previous, 1.0e0_wp, eps=1.0e-2_wp)) then
+!     this%deform_eps = 1.2e0_wp * this%deform_eps
+!     if (this%verbose_level >= 1) then
+!       write(*,*) "Slow convergence: Increased deform_eps to", this%deform_eps
+!     end if
+!   end if
+
+    if (this%Rforce / this%Rforce_previous > 1.2e0_wp) then
+      this%deform_eps = 0.5e0_wp * this%deform_eps
+      if (this%verbose_level >= 1) then
+        write(*,*) "Bad deformation: Decrease deform_eps to", this%deform_eps
+      end if
     end if
 
     this%Rforce_previous = this%Rforce
