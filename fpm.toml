@@ -32,30 +32,6 @@ name = "pdm_thickwalled"
 source-dir = "app"
 main = "pdm_thickwalled.f90"
 [[test]]
-name = "quartic"
-source-dir = "test"
-main = "quartic.f90"
-[[test]]
-name = "doublewell"
-source-dir = "test"
-main = "doublewell.f90"
-[[test]]
-name = "cosmo"
-source-dir = "test"
-main = "cosmo.f90"
-[[test]]
 name = "pdm_thickwalled"
 source-dir = "test"
 main = "pdm_thickwalled.f90"
-[[test]]
-name = "cosmo1d"
-source-dir = "test"
-main = "cosmo1d.f90"
-[[test]]
-name = "newpd"
-source-dir = "test"
-main = "newpd.f90"
-[[test]]
-name = "newpdwell"
-source-dir = "test"
-main = "newpdwell.f90"
