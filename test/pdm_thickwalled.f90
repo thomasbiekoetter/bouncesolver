@@ -38,7 +38,8 @@ program bouncesolver__test_cosmopdm
     d, V,  &
     phi_false, phi_true,  &
     alpha=2,  &
-    maxiter=200)
+    verbose_level=1,  &
+    maxiter=100)
 
   call csv_x_of_rho(pd, "plots/tests/thick_walled/x_of_rho.csv")
 

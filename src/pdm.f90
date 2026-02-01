@@ -31,7 +31,7 @@ module bouncesolver__pdm
     procedure(V_abstract), pointer, nopass :: V => null()
     integer :: d
     integer :: alpha
-    integer :: n = 1000
+    integer :: n = 2000
     integer :: n_spls = 20
     integer :: maximum_iterations = 100
     integer :: verbose_level = 1
@@ -73,6 +73,15 @@ module bouncesolver__pdm
     integer, allocatable :: iflag_bspls(:)
     integer :: kx_bspls
     logical :: spline_fail = .false.
+    real(wp), allocatable :: x_best(:)
+    real(wp), allocatable :: xb_best(:)
+    real(wp), allocatable :: xbdot_best(:)
+    real(wp), allocatable :: rho_best(:)
+    real(wp), allocatable :: phi_best(:, :)
+    real(wp), allocatable :: pot_best(:)
+    real(wp), allocatable :: Nforce_best(:, :)
+    real(wp), allocatable :: Pforce_best(:, :)
+    integer :: ib_max_best
   contains
     procedure, private :: allocate_arrays
     procedure, private :: construct_starting_path
@@ -158,14 +167,23 @@ contains
       write(*,*) "Action = ", this%S, this%Sp, this%Sk
       if (iteration == 1) this%S0 = this%S
       call this%calc_forces(iteration)
-      call this%deform_path()
-      if (this%spline_fail) exit
       call this%check_convergence(iteration, converged)
+      if (.not. converged) call this%deform_path()
+      if (this%spline_fail) exit
     end do
 
     this%S = this%S_best
     this%Sp = this%Sp_best
     this%Sk = this%Sk_best
+    this%x = this%x_best
+    this%xb = this%xb_best
+    this%xbdot = this%xbdot_best
+    this%rho = this%rho_best
+    this%phi = this%phi_best
+    this%pot = this%pot_best
+    this%Nforce = this%Nforce_best
+    this%Pforce = this%Pforce_best
+    this%ib_max = this%ib_max_best
 
     if (this%verbose_level >= 1) then
       write(*,*)
@@ -200,6 +218,14 @@ contains
     allocate(this%phi_deformed(n, d))
     allocate(this%bspls(d))
     allocate(this%iflag_bspls(d))
+    allocate(this%x_best(n))
+    allocate(this%xb_best(n))
+    allocate(this%xbdot_best(n))
+    allocate(this%rho_best(n))
+    allocate(this%phi_best(n, d))
+    allocate(this%pot_best(n))
+    allocate(this%Nforce_best(n, d))
+    allocate(this%Pforce_best(n, d))
 
   end subroutine allocate_arrays
 
@@ -476,7 +502,9 @@ contains
         shooting_converged = .false.
       end if
 
-!     write(*,*) x_min, x_max, over_under_flag
+      if (this%verbose_level >= 2) then
+        write(*,*) x_min, x_max, over_under_flag
+      end if
 
     end do
 
@@ -972,6 +1000,15 @@ contains
       this%S_best = this%S
       this%Sp_best = this%Sp
       this%Sk_best = this%Sk
+      this%x_best = this%x
+      this%xb_best = this%xb
+      this%xbdot_best = this%xbdot
+      this%rho_best = this%rho
+      this%phi_best = this%phi
+      this%pot_best = this%pot
+      this%Nforce_best = this%Nforce
+      this%Pforce_best = this%Pforce
+      this%ib_max_best = this%ib_max
     end if
 
     if (this%Rforce < this%Rforce_threshold) then

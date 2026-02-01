@@ -66,7 +66,7 @@ contains
     call f%add(["rho", "pot"])
     call f%next_row()
 
-    do i = 1, pd%n
+    do i = 1, pd%ib_max
       call f%add(  &
         [pd%rho(i), pd%pot(i)],  &
         real_fmt=fmt)
@@ -94,7 +94,7 @@ contains
     call f%add(["x", "p"])
     call f%next_row()
 
-    do i = 1, pd%n
+    do i = 1, pd%ib_max
       call f%add( &
         [pd%x(i), pd%pot(i)],  &
         real_fmt=fmt)
@@ -150,7 +150,7 @@ contains
     call f%add(["x   ", "phi1", "phi2"])
     call f%next_row()
 
-    do i = 1, pd%n
+    do i = 1, pd%ib_max
       call f%add(  &
         [pd%x(i), pd%phi(i, 1), pd%phi(i, 2)],  &
         real_fmt=fmt)
