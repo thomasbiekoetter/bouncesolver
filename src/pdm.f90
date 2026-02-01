@@ -38,6 +38,7 @@ module bouncesolver__pdm
     real(wp) :: Rforce_threshold = 0.1e0_wp
     real(wp) :: Rforce
     real(wp) :: Rforce_previous = 1.0e10_wp
+    real(wp) :: Rforce_best = 1.0e10_wp
     real(wp) :: deform_eps = 0.02e0_wp
     real(wp), allocatable :: phi_false(:)
     real(wp), allocatable :: phi_true(:)
@@ -57,6 +58,9 @@ module bouncesolver__pdm
     real(wp) :: Sp
     real(wp) :: Sk
     real(wp) :: S0
+    real(wp) :: S_best = 1.0e10_wp
+    real(wp) :: Sp_best
+    real(wp) :: Sk_best
     real(wp), allocatable :: Nforce(:, :)
     real(wp), allocatable :: Pforce(:, :)
     real(wp), allocatable :: xforce(:)
@@ -68,6 +72,7 @@ module bouncesolver__pdm
     type(bspline_1d), allocatable :: bspls(:)
     integer, allocatable :: iflag_bspls(:)
     integer :: kx_bspls
+    logical :: spline_fail = .false.
   contains
     procedure, private :: allocate_arrays
     procedure, private :: construct_starting_path
@@ -154,8 +159,20 @@ contains
       if (iteration == 1) this%S0 = this%S
       call this%calc_forces(iteration)
       call this%deform_path()
+      if (this%spline_fail) exit
       call this%check_convergence(iteration, converged)
     end do
+
+    this%S = this%S_best
+    this%Sp = this%Sp_best
+    this%Sk = this%Sk_best
+
+    if (this%verbose_level >= 1) then
+      write(*,*)
+      write(*,*) "Result:"
+      write(*,*) "Action = ", this%S, this%Sp, this%Sk
+      write(*,*) "Force ratio =", this%Rforce_best
+    end if
 
   end function create_solver
 
@@ -916,7 +933,8 @@ contains
       if (.not. is_equal(abs(dphidx), 1.0e0_wp)) then
         write(*,*) "spline path went wrong"
         write(*,*) i, dphidx
-        call exit
+        this%spline_fail = .true.
+!       call exit
       end if
     end do
 
@@ -949,8 +967,18 @@ contains
     this%Rforce = N_max / P_max
     write(*,*) "Force ratio =", this%Rforce
 
+    if (this%Rforce < this%Rforce_best) then
+      this%Rforce_best = this%Rforce
+      this%S_best = this%S
+      this%Sp_best = this%Sp
+      this%Sk_best = this%Sk
+    end if
+
     if (this%Rforce < this%Rforce_threshold) then
       conv = .true.
+      if (this%verbose_level >= 1) then
+        write(*,*) "Converged succesfully. Force ratio:", this%Rforce
+      end if
       return
     else
       conv = .false.
