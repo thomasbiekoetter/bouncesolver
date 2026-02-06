@@ -21,7 +21,7 @@ module bouncesolver__pdm
 
   integer, parameter :: alpha_default = 2
   real(wp), parameter :: x_min_start = 1.0e-18_wp
-  real(wp), parameter :: rho_max_fac_default = 10.0e0_wp
+  real(wp), parameter :: rho_max_fac_default = 20.0e0_wp
 
   abstract interface
     function V_abstract(x) result(y)
@@ -407,7 +407,7 @@ contains
     msq_false = this%d2V_dx2(this%n)
     this%msq_false = msq_false
 
-    this%rho_max = this%rho_max_fac * sqrt(msq_false)
+    this%rho_max = this%rho_max_fac / sqrt(msq_false)
 
   end subroutine estimate_rho_max
 
