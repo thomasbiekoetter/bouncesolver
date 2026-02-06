@@ -65,6 +65,6 @@ contains
 
     y = (abs(a - b) <= tol)
 
-end function is_equal
+  end function is_equal
 
 end module bouncesolver__util
