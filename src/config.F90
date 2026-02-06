@@ -13,6 +13,6 @@ module bouncesolver__config
   integer, parameter, public :: wp = dp
 #endif
 
-  character(len=*), parameter, public :: fmt = "(es15.5)"
+  character(len=*), parameter, public :: fmt = "(es20.10)"
 
 end module bouncesolver__config
