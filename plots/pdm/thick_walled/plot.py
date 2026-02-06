@@ -76,7 +76,7 @@ ax[1].tick_params(
 
 majorLocator = MultipleLocator(1)
 minorLocator = MultipleLocator(0.2)
-ax[1].set_ylim(-3, 3)
+ax[1].set_ylim(-1, 5)
 ax[1].yaxis.set_major_locator(majorLocator)
 ax[1].yaxis.set_minor_locator(minorLocator)
 ax[1].tick_params(
@@ -89,7 +89,7 @@ ax[0].legend(
     frameon=False)
 
 ax[1].legend(
-    loc=(0.5, 0.02),
+#   loc=(0.5, 0.02),
     frameon=False)
 
 ax[0].text(
