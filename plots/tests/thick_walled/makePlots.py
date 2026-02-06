@@ -35,9 +35,10 @@ Z = interpolate.griddata(
     (X / xscale, Y / yscale),
     method="linear")
 Zmin = np.min(Z)
+Zmax = np.max(Z)
 lvls = []
 for i in range(0, 20):
-    lvls.append(Zmin + i * 0.1)
+    lvls.append(Zmin + i * 0.01 * (Zmax - Zmin))
 cs = ax.contour(
     X, Y, Z,
     levels=lvls,
