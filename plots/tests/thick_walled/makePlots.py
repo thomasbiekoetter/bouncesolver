@@ -10,9 +10,9 @@ from scipy import interpolate
 df = pd.read_csv("pot_of_phi1_phi2.csv")
 fig, ax = plt.subplots()
 
-xmins = [
-    [0, 1.057445],
-    [0, 1.553]]
+# xmins = [
+#     [0, 1.057445],
+#     [0, 1.553]]
 
 number_points = 200
 xmax = np.max(df["phi1"])
@@ -48,9 +48,9 @@ ax.plot(
     dg['phi1'],
     dg['phi2'])
 
-ax.plot(
-    xmins[0],
-    xmins[1])
+# ax.plot(
+#     xmins[0],
+#     xmins[1])
 
 plt.savefig("potential.pdf")
 

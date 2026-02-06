@@ -17,7 +17,8 @@ program bouncesolver__test_cosmopdm
 
   real(wp), parameter :: a = 1.8e0_wp
   real(wp), parameter :: b = 0.2e0_wp
-  real(wp), parameter :: c = 0.1e0_wp
+! real(wp), parameter :: c = 0.08e0_wp
+  real(wp), parameter :: c = 0.08e0_wp
 
   type(solver) :: pd
   integer, parameter :: d = 2
@@ -39,6 +40,7 @@ program bouncesolver__test_cosmopdm
     phi_false, phi_true,  &
     alpha=2,  &
     verbose_level=1,  &
+!   deform_eps=1.0e-1_wp,  &
     smoothing=.true.,  &
     maxiter=100)
 
@@ -56,14 +58,14 @@ program bouncesolver__test_cosmopdm
 
 contains
 
-  function V(x) result(y)
+  function V(phi) result(y)
 
-    real(wp), intent(in) :: x(:)
+    real(wp), intent(in) :: phi(:)
     real(wp) :: y
 
-    y = (x(1) ** 2 + x(2) ** 2) * (  &
-      a * (x(1) - 1.0e0_wp) ** 2 +  &
-      b * (x(2) - 1.0e0_wp) ** 2 - c)
+    y = (phi(1) ** 2 + phi(2) ** 2) * (  &
+      a * (phi(1) - 1.0e0_wp) ** 2 +  &
+      b * (phi(2) - 1.0e0_wp) ** 2 - c)
 
   end function V
 
@@ -80,6 +82,10 @@ contains
 
     call minimize(V, phi_false, phi_min, V_min, maxiter=10000, mode=1)
     phi_false = phi_min
+
+!   write(*,*) phi_true
+!   write(*,*) phi_false
+!   call exit
 
   end subroutine get_minima
 

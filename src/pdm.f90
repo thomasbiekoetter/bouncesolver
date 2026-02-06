@@ -5,10 +5,13 @@ module bouncesolver__pdm
   use bouncesolver__util, only : pi
   use bouncesolver__util, only : riemann_integrate
   use bouncesolver__util, only : is_equal
+  use bouncesolver__specialfunction, only : bessel_mod_1
   use odeint__rk4, only : integrate
   use gradmin__derivatives, only : gradient
   use bspline_module, only : bspline_1d
+  use bspline_module, only : get_status_message
   use cubicsplines__smoothing, only : add_viscosity
+  use ieee_arithmetic, only : ieee_is_nan
 
   implicit none
 
@@ -83,6 +86,8 @@ module bouncesolver__pdm
     real(wp), allocatable :: Pforce_best(:, :)
     integer :: ib_max_best
     logical :: smoothing = .false.
+    real(wp) :: msq_false
+    real(wp) :: msq_true
   contains
     procedure, private :: allocate_arrays
     procedure, private :: construct_starting_path
@@ -91,6 +96,8 @@ module bouncesolver__pdm
     procedure, private :: estimate_rho_max
     procedure, private :: get_index_from_x
     procedure, private :: bounce_on_path
+    procedure, private :: bounce_on_path_thin
+    procedure, private :: bounce_on_path_thin2
     procedure, private :: dV_dx
     procedure, private :: clip_bounce
     procedure, private :: calc_action
@@ -99,6 +106,7 @@ module bouncesolver__pdm
     procedure, private :: calc_phi_on_bounce
     procedure, private :: deform_path
     procedure, public :: check_convergence
+    procedure, private :: calc_msq_true
   end type solver
 
   interface solver
@@ -129,6 +137,7 @@ contains
 
     logical :: converged
     integer :: iteration
+    logical :: too_thin
 
     this%d = d
     this%V => V
@@ -163,11 +172,29 @@ contains
     call this%allocate_arrays()
     call this%construct_starting_path()
     call this%estimate_rho_max()
+    call this%calc_msq_true
     converged = .false.
     iteration = 0
     do while (.not. converged)
       iteration = iteration + 1
-      call this%bounce_on_path()
+      call this%bounce_on_path(too_thin)
+!     if (too_thin) then
+!       ! Only for iteration > 1 because for first
+!       ! iteration not dramatic because for the
+!       ! straight initial path the deformation only
+!       ! depends on the gradient of the potential
+!       ! NO: deform_path sets rho_max to zero then...
+!       call this%bounce_on_path_thin()
+!     end if
+!     if (too_thin) then
+!       write(*,*) "Wall too thin: approximate try."
+!       call this%bounce_on_path_thin()
+!     end if
+      if (too_thin) then
+        write(*,*) "Wall too thin: approximate try."
+        call this%bounce_on_path_thin2()
+      end if
+!     call this%bounce_on_path_thin()
       call this%calc_action()
       write(*,*) "Action = ", this%S, this%Sp, this%Sk
       if (iteration == 1) this%S0 = this%S
@@ -378,6 +405,7 @@ contains
     real(wp) :: msq_false
 
     msq_false = this%d2V_dx2(this%n)
+    this%msq_false = msq_false
 
     this%rho_max = this%rho_max_fac * sqrt(msq_false)
 
@@ -441,9 +469,10 @@ contains
 
   end subroutine get_index_from_x
 
-  subroutine bounce_on_path(this)
+  subroutine bounce_on_path(this, too_thin)
 
     class(solver), intent(inout) :: this
+    logical, intent(out) :: too_thin
 
     logical :: shooting_converged
     real(wp) :: x_min
@@ -468,6 +497,8 @@ contains
 
     over_under_flag = 0
     shooting_converged = .false.
+
+    too_thin = .false.
 
     do while (.not. shooting_converged)
 
@@ -514,6 +545,11 @@ contains
 
     end do
 
+    if (is_equal(x_max / this%x_min, 1.0e0_wp, eps=1.0e-10_wp)) then
+      too_thin = .true.
+      return
+    end if
+
     this%rho = rho
     this%xb = x(:, 1)
     this%xbdot = x(:, 2)
@@ -556,6 +592,612 @@ contains
 
   end subroutine bounce_on_path
 
+! subroutine bounce_on_path_thin(this)
+
+!   class(solver), intent(inout) :: this
+
+!   real(wp) :: x_match
+!   real(wp) :: msq_true
+!   real(wp) :: d2V
+!   logical :: shooting_converged
+!   real(wp) :: x_min
+!   real(wp) :: x_max
+!   real(wp) :: rho_min
+!   real(wp) :: rho_max
+!   real(wp) :: x1
+!   real(wp) :: x0(2)
+!   integer :: over_under_flag
+!   logical :: overshot
+!   integer :: n
+!   real(wp), allocatable :: rho(:)
+!   real(wp), allocatable :: x(:, :)
+!   integer :: i
+
+!   n = this%n
+
+!   msq_true = this%d2V_dx2(1)
+!   do i = 1, n
+!     d2V = this%d2V_dx2(i)
+!     ! At the bubble wall d2V = 0, abs(d2V - msq_true) ~ msq_true
+!     ! I want to use thin-walled approximation not until bubble wall,
+!     ! but only a subrange below bubble wall, so added factor 4.
+!     if (abs(d2V - msq_true) > msq_true) then
+!       x_match = this%x(i)
+!       exit
+!     end if
+!   end do
+!   if ((i - 1) == n) then
+!     write(*,*) "x_match problem"
+!     call exit
+!   end if
+
+!   x_min = this%x_min
+!   x_max = this%find_x_barrier()
+
+!   rho_min = 1.0e-4_wp
+!   rho_max = this%rho_max
+
+!   over_under_flag = 0
+!   shooting_converged = .false.
+
+!   do while (.not. shooting_converged)
+
+!     select case (over_under_flag)
+!       case (0) ! First iteration
+!         x1 = (x_max + x_min) / 100.0e0_wp
+!       case (1) ! Overshoot
+!         x_min = x1
+!         x1 = (x_max + x_min) / 2.0e0_wp
+!       case (-1) ! Undershoot
+!         x_max = x1
+!         x1 = (x_max + x_min) / 2.0e0_wp
+!     end select
+
+!     x0(1) = x1
+!     x0(2) = 0.0e0_wp
+
+!     call integrate(  &
+!       dxdrho,  &
+!       x0,  &
+!       rho_min,  &
+!       rho_max,  &
+!       n,  &
+!       rho, x)
+
+!     if (overshot) then
+!       over_under_flag = 1
+!     else
+!       over_under_flag = -1
+!     end if
+
+!     if (is_equal(  &
+!           x_min / x_max,  &
+!           1.0e0_wp,  &
+!           eps=1.0e-10_wp)) then
+!       shooting_converged = .true.
+!     else
+!       shooting_converged = .false.
+!     end if
+
+!     if (this%verbose_level >= 2) then
+!       write(*,*) 'xxx', x_min, x_max, over_under_flag
+!     end if
+
+!   end do
+
+!   this%rho = rho
+!   this%xb = x(:, 1)
+!   this%xbdot = x(:, 2)
+!   do i = 1, n
+!     call this%get_index_from_x(  &
+!       this%xb(i),  &
+!       this%ixs(i))
+!   end do
+
+!   call this%calc_phi_on_bounce()
+
+!   do i = 1, n
+!     this%pot(i) = this%V(this%phi(i, :))
+!   end do
+
+!   contains
+
+!     function dxdrho(x, rho) result(xdot)
+
+!       real(wp), intent(in) :: x(:)
+!       real(wp), intent(in) :: rho
+!       real(wp), allocatable :: xdot(:)
+
+!       integer :: ix
+
+!       allocate(xdot(2))
+
+!       call this%get_index_from_x(x(1), ix, overshot)
+
+!       if (.not. overshot) then
+!         if (x(1) > x_match) then
+!           xdot(1) = x(2)
+!           xdot(2) = this%dV_dx(ix) -  &
+!             this%alpha * x(2) / rho
+!         else
+!           xdot(1) = x(2)
+!           xdot(2) = msq_true * x(1) -  &
+!             this%alpha * x(2) / rho
+!         end if
+!       else
+!         xdot(1) = 0.0e0_wp
+!         xdot(2) = 0.0e0_wp
+!       end if
+
+!     end function dxdrho
+
+! end subroutine bounce_on_path_thin
+
+  subroutine bounce_on_path_thin2(this)
+
+    class(solver), intent(inout) :: this
+
+    integer :: n
+!   real(wp) :: msq_true
+    real(wp) :: x0
+    real(wp) :: V0
+    real(wp) :: dV
+    real(wp) :: d2V
+    real(wp) :: nu
+    real(wp) :: gam
+!   real(wp) :: V_true
+    integer :: i
+    integer :: j
+    integer :: i_switch
+    real(wp) :: x_switch
+    real(wp) :: rho_switch
+    real(wp) :: beta
+    real(wp) :: br
+    real(wp) :: rho(this%n)
+    real(wp) :: drho
+    real(wp) :: x1
+    real(wp) :: x_start(2)
+    real(wp) :: x_min
+    real(wp) :: x_max
+    real(wp) :: rho_min
+    real(wp) :: rho_max
+    integer :: over_under_flag
+    logical :: shooting_converged
+    logical :: too_thin
+    real(wp) :: x(this%n, 2)
+    real(wp), allocatable :: rho_ode(:)
+    real(wp), allocatable :: x_ode(:, :)
+    logical :: overshot
+
+    n = this%n
+    nu = 0.5e0_wp * (this%alpha - 1.0e0_wp)
+    gam = gamma(nu + 1.0e0_wp)
+
+    x_min = this%x_min
+    x_max = this%find_x_barrier()
+
+    rho_min = 1.0e-4_wp
+    rho_max = this%rho_max
+    rho = linspace(1.0e-4_wp, rho_max, n)
+    drho = rho(2) - rho(1)
+
+    over_under_flag = 0
+    shooting_converged = .false.
+
+    too_thin = .false.
+
+    do while (.not. shooting_converged)
+
+      select case (over_under_flag)
+        case (0) ! First iteration
+          x1 = (x_max + x_min) / 100.0e0_wp
+        case (1) ! Overshoot
+          x_min = x1
+          x1 = (x_max + x_min) / 2.0e0_wp
+        case (-1) ! Undershoot
+          x_max = x1
+          x1 = (x_max + x_min) / 2.0e0_wp
+      end select
+
+!     x_start(1) = x1
+!     x_start(2) = 0.0e0_wp
+
+      ! Construct harmonic approximation of V
+!     msq_true = this%msq_true
+!     V_true = this%V(this%phi_true)
+      call this%get_index_from_x(x1, j)
+      x0 = this%x(j)
+      V0 = this%pot(j)
+      dV = this%dV_dx(j)
+      d2V = this%d2V_dx2(j)
+
+      ! Check until which x-value is good approximation
+      do i = j, n
+        if (this%d2V_dx2(i) < 0.0e0_wp) then
+!       if (.not. is_equal(Vapprx(this%x(i)) / this%pot(i), 1.0e0_wp, eps=2.0e2_wp)) then
+          x_switch = this%x(i)
+          exit
+        end if
+      end do
+!     write(*,*) dV, d2V, x_switch
+
+      ! Use analytic solution in valid x-range
+!     write(*,*) 'd2V', d2V, x0
+      beta = sqrt(d2V)
+      do i = 1, n
+        br = beta * rho(i)
+        x(i, 1) = (dV / d2V) * (gam * (br / 2.0e0_wp) ** (-nu) * Inu(br) - 1.0e0_wp)
+        if (x(i, 1) > x_switch) then
+          i_switch = i - 1
+          exit
+        end if
+      end do
+!     write(*,*) i_switch, rho(i_switch), x(i_switch, 1)
+
+      ! Get xdot for analytic part
+      x(1, 2) = (x(2, 1) - x(1, 1)) / drho
+      do i = 2, i_switch - 1
+        x(i, 2) = (x(i + 1, 1) - x(i - 1, 1)) / (2.0e0_wp * drho)
+      end do
+      x(i_switch, 2) = (x(i_switch, 1) - x(i_switch - 1, 1)) / drho
+
+      ! Integrate the remaining rho region with odeint
+      x_start = x(i_switch, :)
+      rho_switch = rho(i_switch)
+      call integrate(  &
+        dxdrho,  &
+        x_start,  &
+        rho_switch,  &
+        rho_max,  &
+        n - i_switch + 1,  &
+        rho_ode, x_ode)
+
+      ! Stitching together thin + odeint parts
+      rho(i_switch:n) = rho_ode
+      x(i_switch:n, :) = x_ode
+
+      if (overshot) then
+        over_under_flag = 1
+      else
+        over_under_flag = -1
+      end if
+
+      if (is_equal(  &
+            x_min / x_max,  &
+            1.0e0_wp,  &
+            eps=1.0e-10_wp)) then
+        shooting_converged = .true.
+      else
+        shooting_converged = .false.
+      end if
+
+      if (this%verbose_level >= 2) then
+        write(*,*) x_min, x_max, over_under_flag
+      end if
+
+    end do
+
+    this%rho = rho
+    this%xb = x(:, 1)
+    this%xbdot = x(:, 2)
+    do i = 1, n
+      call this%get_index_from_x(  &
+        this%xb(i),  &
+        this%ixs(i))
+    end do
+
+    call this%calc_phi_on_bounce()
+
+    do i = 1, n
+      this%pot(i) = this%V(this%phi(i, :))
+    end do
+
+  contains
+
+    function Vapprx(x) result(y)
+
+      real(wp), intent(in) :: x
+      real(wp) :: y
+
+!     y = msq_true * x ** 2 + V_true
+      y = V0 + dV * (x - x0) + 0.5e0_wp * d2V * (x - x0) ** 2
+
+    end function
+
+    function Inu(br) result(y)
+
+      real(wp), intent(in) :: br
+      real(wp) :: y
+
+      if (this%alpha == 2) then
+        ! Source: 1. https://ameli.github.io/special_functions/api/besseli.html
+        !         2. https://archive.lib.msu.edu/crcmath/math/math/m/m312.htm
+        y = sqrt(2.0e0_wp / (pi * br)) * sinh(br)
+      else if (this%alpha == 3) then
+        y = bessel_mod_1(br)
+      end if
+
+    end function Inu
+
+    function dxdrho(x, rho) result(xdot)
+
+      real(wp), intent(in) :: x(:)
+      real(wp), intent(in) :: rho
+      real(wp), allocatable :: xdot(:)
+
+      integer :: ix
+
+      allocate(xdot(2))
+
+      call this%get_index_from_x(x(1), ix, overshot)
+
+      if (.not. overshot) then
+        xdot(1) = x(2)
+        xdot(2) = this%dV_dx(ix) -  &
+          this%alpha * x(2) / rho
+      else
+        xdot(1) = 0.0e0_wp
+        xdot(2) = 0.0e0_wp
+      end if
+
+      end function dxdrho
+
+  end subroutine bounce_on_path_thin2
+
+  subroutine bounce_on_path_thin(this)
+
+    class(solver), intent(inout) :: this
+
+    real(wp) :: x_match
+    real(wp) :: msq_true
+    real(wp) :: d2V
+    logical :: shooting_converged
+    real(wp) :: nu
+!   real(wp) :: x_min
+!   real(wp) :: x_max
+    real(wp) :: rho_min
+    real(wp) :: rho_max
+!   real(wp) :: x1
+    real(wp) :: x0(2)
+    integer :: over_under_flag
+    logical :: overshot
+    integer :: n
+    real(wp), allocatable :: rho(:)
+    real(wp), allocatable :: x(:, :)
+    integer :: i
+    real(wp) :: r
+    real(wp) :: rho_match
+    integer :: i_match
+    integer :: i_match_min
+    integer :: i_match_max
+    real(wp) :: C_min
+    real(wp) :: C_max
+    real(wp) :: C
+    real(wp) :: b
+    real(wp) :: drho
+    real(wp), allocatable :: rho_ode(:)
+    real(wp), allocatable :: x_ode(:, :)
+
+    n = this%n
+
+    nu = 0.5e0_wp * (this%alpha - 1.0e0_wp)
+
+    msq_true = this%msq_true ! this%d2V_dx2(1)
+!   do i = 1, n
+!     d2V = this%d2V_dx2(i)
+!     ! At the bubble wall d2V = 0, abs(d2V - msq_true) ~ msq_true
+!     ! I want to use thin-walled approximation not until bubble wall,
+!     ! but only a subrange below bubble wall, so added factor 2.
+!     if (4.0e0_wp * abs(d2V - msq_true) > msq_true) then
+!       x_match = this%x(i)
+!       exit
+!     end if
+!   end do
+!   if ((i - 1) == n) then
+!     write(*,*) "x_match problem"
+!     call exit
+!   end if
+!   write(*,*) "asdfasd", i
+
+!   do i = 1, n
+!     if (norm2(this%phi(i, :) - this%phi_true) >  &
+!         1.0e-2_wp * norm2(this%phi_false - this%phi_true)) then
+!       x_match = this%x(i)
+!       i_match = i
+!       exit
+!     end if
+!   end do
+!   write(*,*) "asdfasd", i, x_match
+
+!   if (i_match == 0) then
+!     write(*,*) "Couldn't determine i_match"
+!     write(*,*) i_match, x_match
+!     call exit
+!   end if
+
+!     write(*,*) i_match, rho_match, x_match, C
+
+    shooting_converged = .false.
+    over_under_flag = 0
+    C_min = 1.0e-30_wp
+    C_max = 1.0e-1_wp ! Determine from position of barrier
+    b = sqrt(msq_true)
+
+    rho_min = 1.0e-4_wp
+    rho_max = 1.0e0_wp * this%rho_max
+
+    rho = linspace(1.0e-4_wp, rho_max, n)
+!   rho_match = rho(i_match)
+    drho = rho(2) - rho(1)
+    allocate(x(n, 2))
+
+    C = 1.0e-5_wp
+    i_match_min = 2
+    i_match_max = n / 2
+
+    do while (.not. shooting_converged)
+
+!     select case (over_under_flag)
+!       case (0) ! First iteration
+!         C = (C_max + C_min) / 100.0e0_wp
+!       case (1) ! Overshoot
+!         C_max = C
+!         C = (C_max + C_min) / 2.0e0_wp
+!       case (-1) ! Undershoot
+!         C_min = C
+!         C = (C_max + C_min) / 2.0e0_wp
+!     end select
+!     C = 0.00000000001e0_wp
+
+      select case (over_under_flag)
+        case (0) ! First iteration
+          i_match = (i_match_max + i_match_min) / 2.0e0_wp
+        case (1) ! Overshoot
+          i_match_max = i_match
+          i_match = (i_match_max + i_match_min) / 2.0e0_wp
+        case (-1) ! Undershoot
+          i_match_min = i_match
+          i_match = (i_match_max + i_match_min) / 2.0e0_wp
+      end select
+
+      ! Analytic solution until x = x_match
+!     do i = 1, i_match
+!       x(i, 1) = C * Inu(rho(i))
+!       if (x(i, 1) > x_match) then
+!         rho_match = rho(i)
+!         exit
+!       end if
+!     end do
+      do i = 1, i_match
+        x(i, 1) = C * Inu(rho(i))
+      end do
+
+      ! Get xdot for analytic part
+      x(1, 2) = (x(2, 1) - x(1, 1)) / drho
+      do i = 2, i_match - 1
+        x(i, 2) = (x(i + 1, 1) - x(i - 1, 1)) / (2.0e0_wp * drho)
+      end do
+      x(i_match, 2) = (x(i_match, 1) - x(i_match - 1, 1)) / drho
+!     write(*,*) x(1:i_match, 2)
+
+      ! TODO: make tighter cut on rho if needed
+
+      ! Integrate the remaining rho region with odeint
+      x0 = x(i_match, :)
+      rho_match = rho(i_match)
+      call integrate(  &
+        dxdrho,  &
+        x0,  &
+        rho_match + drho,  &
+        rho_max,  &
+        n - i_match,  &
+        rho_ode, x_ode)
+
+      ! Stitching together thin + odeint parts
+      rho(i_match+1:n) = rho_ode
+      x(i_match+1:n, :) = x_ode
+
+!     do i = 570, 600
+!       write(*,*) i, rho(i), x(i, 2)
+!     end do
+!     call exit
+
+      if (overshot) then
+        over_under_flag = 1
+      else
+        over_under_flag = -1
+      end if
+
+!     if (is_equal(  &
+!           C_min / C_max,  &
+!           1.0e0_wp,  &
+!           eps=1.0e-10_wp)) then
+!       shooting_converged = .true.
+!     else
+!       shooting_converged = .false.
+!     end if
+
+      if (abs(i_match_min -i_match_max) <= 1) then
+        shooting_converged = .true.
+      else
+        shooting_converged = .false.
+      end if
+
+!     if (this%verbose_level >= 2) then
+!       write(*,*) C_min, C_max, over_under_flag
+!     end if
+
+      if (this%verbose_level >= 2) then
+        write(*,*) i_match_min, i_match_max, over_under_flag
+      end if
+
+!     shooting_converged = .true.
+
+    end do
+
+    this%rho = rho
+    this%xb = x(:, 1)
+    this%xbdot = x(:, 2)
+    do i = 1, n
+      call this%get_index_from_x(  &
+        this%xb(i),  &
+        this%ixs(i))
+    end do
+
+    call this%calc_phi_on_bounce()
+
+    do i = 1, n
+      this%pot(i) = this%V(this%phi(i, :))
+    end do
+
+  contains
+
+    function Inu(x) result(y)
+
+      real(wp), intent(in) :: x
+      real(wp) :: y
+
+      if (this%alpha == 2) then
+        y = sinh(x * b) / x
+      else if (this%alpha == 3) then
+        y = bessel_mod_1(x * b) / x
+      end if
+
+    end function Inu
+
+    function dxdrho(x, rho) result(xdot)
+
+      real(wp), intent(in) :: x(:)
+      real(wp), intent(in) :: rho
+      real(wp), allocatable :: xdot(:)
+
+      integer :: ix
+
+      allocate(xdot(2))
+
+      call this%get_index_from_x(x(1), ix, overshot)
+
+      if (.not. overshot) then
+        xdot(1) = x(2)
+        xdot(2) = this%dV_dx(ix) -  &
+          this%alpha * x(2) / rho
+      else
+        xdot(1) = 0.0e0_wp
+        xdot(2) = 0.0e0_wp
+      end if
+
+      end function dxdrho
+
+  end subroutine bounce_on_path_thin
+
+  subroutine calc_msq_true(this)
+
+    class(solver), intent(inout) :: this
+
+    this%msq_true = this%d2V_dx2(1)
+
+  end subroutine calc_msq_true
+
   subroutine calc_phi_on_bounce(this)
 
     class(solver), intent(inout) :: this
@@ -584,7 +1226,7 @@ contains
     do i = 1, n
       j = ixs(i)
       if (j == n) then
-        phib(i, :) = phi(i, :)
+        phib(i, :) = phi(j, :)
       else if (j == 1) then
         if (xb(i) > x(j)) then
           x1 = x(j)
@@ -785,6 +1427,7 @@ contains
     real(wp) :: Nforce(this%ib_max, this%d)
     real(wp) :: Pforce(this%ib_max, this%d)
     real(wp) :: gradV_len(this%ib_max)
+    real(wp) :: dx
 
     n = this%ib_max
     rho = this%rho(1:n)
@@ -827,13 +1470,20 @@ contains
 
     do i = 1, n
       if (i == 1) then
-        pathdir(i, :) = (phi(2, :) - phi(1, :)) / (x(2) - x(1))
+        dx = x(2) - x(1)
+        if (dx == 0.0e0_wp) dx = dx + 1.0e-30_wp
+        pathdir(i, :) = (phi(2, :) - phi(1, :)) / dx
       else if (i == n) then
-        pathdir(i, :) = (phi(n, :) - phi(n - 1, :)) / (x(n) - x(n - 1))
+        dx = x(n) - x(n - 1)
+        if (dx == 0.0e0_wp) dx = dx + 1.0e-30_wp
+        pathdir(i, :) = (phi(n, :) - phi(n - 1, :)) / dx
       else
-        pathdir(i, :) = (phi(i + 1, :) - phi(i - 1, :)) / (x(i + 1) - x(i - 1))
+        dx = x(i + 1) - x(i - 1)
+        if (dx == 0.0e0_wp) dx = dx + 1.0e-30_wp
+        pathdir(i, :) = (phi(i + 1, :) - phi(i - 1, :)) / dx
       end if
-      if (.not. is_equal(norm2(pathdir(i, :)), 1.0e0_wp, eps=1.0e-3_wp)) then
+      if ((.not. is_equal(norm2(pathdir(i, :)), 1.0e0_wp, eps=1.0e-3_wp)) .and.  &
+          this%verbose_level >= 3) then
         write(*,*) "Problem with pathdir in calc_forces."
         write(*,*) i, pathdir(i, :), norm2(pathdir(i, :))
 !       call exit
@@ -882,9 +1532,22 @@ contains
         real(wp), intent(in) :: xu
         real(wp) :: y
 
+        real(wp) :: dxl
+        real(wp) :: dxu
+        real(wp) :: dxlu
+
+        dxu = xu - x0
+        dxl = x0 - xl
+
+        ! Avoid 1 / 0 exceptions
+        if (dxu == 0.0e0_wp) dxu = dxu + 1.0e-10_wp
+        if (dxl == 0.0e0_wp) dxl = dxl + 1.0e-10_wp
+
+        dxlu = dxu + dxl
+
         y = 2.0e0_wp * (  &
-          (Tu - T0) / (xu - x0) -  &
-          (T0 - Tl) / (x0 - xl)) / (xu - xl)
+          (Tu - T0) / dxu -  &
+          (T0 - Tl) / dxl) / dxlu
 
       end function dT_step
 
@@ -961,6 +1624,11 @@ contains
       call this%bspls(j)%initialize(  &
         x_spline,  &
         phi_spline(:, j), this%kx_bspls, this%iflag_bspls(j))
+      if (this%iflag_bspls(j) /= 0) then
+        write(*,*) 'Error initializing ', j, 'D spline: ' //  &
+          get_status_message(this%iflag_bspls(j))
+        call exit
+      end if
     end do
 
     n = this%n
@@ -971,7 +1639,16 @@ contains
       do i = 1, n
         call this%bspls(j)%evaluate(  &
           x(i), idx_bspls, phi(i, j), this%iflag_bspls(j))
+        if (ieee_is_nan(phi(i, j))) then
+          write(*,*) i, j, phi(i, j), this%iflag_bspls(j)
+          call exit
+        end if
       end do
+      if (this%iflag_bspls(j) /= 0) then
+        write(*,*) 'Error evaluating ', j, 'D spline: ' //  &
+          get_status_message(this%iflag_bspls(j))
+        call exit
+      end if
     end do
 
     if (this%smoothing) then
@@ -996,8 +1673,15 @@ contains
       dphidx = norm2(phi(i + 1, :) - phi(i, :)) /  &
         (x(i + 1) - x(i))
       if (.not. is_equal(abs(dphidx), 1.0e0_wp)) then
-        write(*,*) "spline path went wrong"
-        write(*,*) i, dphidx
+        if (i == 1) then
+          write(*,*) "spline path went wrong"
+          write(*,*) i, dphidx
+          write(*,*) x(i + 1), x(i)
+          write(*,*) phi(i + 1, :)
+          write(*,*) phi(i, :)
+          write(*,*) x(i + 1) - x(i)
+          write(*,*) norm2(phi(i + 1, :) - phi(i, :))
+        end if
         this%spline_fail = .true.
 !       call exit
       end if
@@ -1032,7 +1716,7 @@ contains
     this%Rforce = N_max / P_max
     write(*,*) "Force ratio =", this%Rforce
 
-    if (this%Rforce < this%Rforce_best) then
+    if ((this%Rforce < this%Rforce_best) .or. (iteration == 1)) then
       this%Rforce_best = this%Rforce
       this%S_best = this%S
       this%Sp_best = this%Sp
@@ -1058,11 +1742,11 @@ contains
       conv = .false.
     end if
 
-    if (this%Rforce > 2 * this%Rforce_previous) then
-      conv = .true.
-      write(*,*) "Stopped before reaching Rforce_threshold"
-      write(*,*) "because Rforce started to increase."
-    end if
+!   if (this%Rforce > 2 * this%Rforce_previous) then
+!     conv = .true.
+!     write(*,*) "Stopped before reaching Rforce_threshold"
+!     write(*,*) "because Rforce started to increase."
+!   end if
 
     if (iteration == this%maximum_iterations) then
       conv = .true.
