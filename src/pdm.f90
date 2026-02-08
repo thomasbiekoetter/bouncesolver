@@ -119,6 +119,7 @@ contains
     d, V, phi_false, phi_true,  &
     alpha, rho_max_fac, x_min,  &
     maxiter, deform_eps,  &
+    Rforce_threshold,  &
     smoothing,  &
     verbose_level) result(this)
 
@@ -131,6 +132,7 @@ contains
     real(wp), intent(in), optional :: x_min
     integer, intent(in), optional :: maxiter
     real(wp), intent(in), optional :: deform_eps
+    real(wp), intent(in), optional :: Rforce_threshold
     logical, intent(in), optional :: smoothing
     integer, intent(in), optional :: verbose_level
     type(solver) :: this
@@ -162,6 +164,8 @@ contains
     if (present(maxiter)) this%maximum_iterations = maxiter
 
     if (present(deform_eps)) this%deform_eps = deform_eps
+
+    if (present(Rforce_threshold)) this%Rforce_threshold = Rforce_threshold
 
     if (present(smoothing)) this%smoothing = smoothing
 
