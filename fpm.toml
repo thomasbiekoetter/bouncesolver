@@ -34,3 +34,13 @@ main = "pdm_thickwalled.f90"
 name = "pdm_thickwalled"
 source-dir = "test"
 main = "pdm_thickwalled.f90"
+[features]
+debug.flags = "-fPIC -O0 -g "
+debug.gfortran.flags = "-fbounds-check -fbacktrace -Wall -Wuninitialized -fmax-errors=1 -fcheck=all -ffpe-trap=invalid,zero,overflow"
+debug.ifx.flags = "-check bounds -check pointer -traceback"
+release.flags = "-O3"
+release.gfortran.flags = "-march=native -fmax-errors=1 -ffixed-line-length-none -fno-range-check"
+release.ifx.flags = "-xHost -march"
+[profiles]
+debug = ["debug"]
+release = ["release"]
