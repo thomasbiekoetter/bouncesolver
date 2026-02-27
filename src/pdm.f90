@@ -118,6 +118,7 @@ contains
   function create_solver(  &
     d, V, phi_false, phi_true,  &
     alpha, rho_max_fac, x_min,  &
+    n_odeint,  &
     maxiter, deform_eps,  &
     Rforce_threshold,  &
     smoothing,  &
@@ -130,6 +131,7 @@ contains
     integer, intent(in), optional :: alpha
     real(wp), intent(in), optional :: rho_max_fac
     real(wp), intent(in), optional :: x_min
+    integer, intent(in), optional :: n_odeint
     integer, intent(in), optional :: maxiter
     real(wp), intent(in), optional :: deform_eps
     real(wp), intent(in), optional :: Rforce_threshold
@@ -160,6 +162,8 @@ contains
     else
       this%x_min = x_min_start
     end if
+
+    if (present(n_odeint)) this%n = n_odeint
 
     if (present(maxiter)) this%maximum_iterations = maxiter
 
