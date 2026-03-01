@@ -17,7 +17,6 @@ program bouncesolver__test_cosmopdm
 
   real(wp), parameter :: a = 1.8e0_wp
   real(wp), parameter :: b = 0.2e0_wp
-! real(wp), parameter :: c = 0.08e0_wp
   real(wp), parameter :: c = 0.08e0_wp
 
   type(solver) :: pd
@@ -41,6 +40,8 @@ program bouncesolver__test_cosmopdm
     alpha=2,  &
     verbose_level=1,  &
 !   deform_eps=1.0e-1_wp,  &
+    n_odeint=2000,  &
+    rho_max_fac=50.0e0_wp,  &
     smoothing=.true.,  &
     maxiter=100)
 
