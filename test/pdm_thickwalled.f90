@@ -17,8 +17,7 @@ program bouncesolver__test_cosmopdm
 
   real(wp), parameter :: a = 1.8e0_wp
   real(wp), parameter :: b = 0.2e0_wp
-! real(wp), parameter :: c = 0.08e0_wp
-  real(wp), parameter :: c = 0.08e0_wp
+  real(wp), parameter :: c = 0.1e0_wp
 
   type(solver) :: pd
   integer, parameter :: d = 2
