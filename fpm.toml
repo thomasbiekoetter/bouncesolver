@@ -17,8 +17,7 @@ implicit-typing = false
 implicit-external = false
 source-form = "free"
 [dependencies]
-# gradmin = { git = "git@gitlab.com:thomas.biekoetter/gradmin.git" }
-gradmin = { path = "../../cxsm_evo/gradmin" }
+gradmin = { git = "git@gitlab.com:thomas.biekoetter/gradmin.git" }
 odeint = { git = "git@gitlab.com:thomas.biekoetter/odeint.git" }
 evortran = { git = "https://gitlab.com/thomas.biekoetter/evortran.git" }
 linalg = { git = "https://gitlab.com/thomas.biekoetter/fpm-linalg.git" }
