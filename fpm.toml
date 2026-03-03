@@ -33,6 +33,10 @@ main = "pdm_thickwalled.f90"
 name = "pdm_thickwalled"
 source-dir = "test"
 main = "pdm_thickwalled.f90"
+[[test]]
+name = "tp_modelA"
+source-dir = "test"
+main = "tp_modelA.f90"
 [features]
 debug.flags = "-fPIC -O0 -g "
 debug.gfortran.flags = "-fbounds-check -fbacktrace -Wall -Wuninitialized -fmax-errors=1 -fcheck=all -ffpe-trap=invalid,zero,overflow"

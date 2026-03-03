@@ -14,5 +14,6 @@ module bouncesolver__config
 #endif
 
   character(len=*), parameter, public :: fmt = "(es20.10)"
+  character(len=*), parameter, public :: fmt2 = "(es20.10,es20.10)"
 
 end module bouncesolver__config
