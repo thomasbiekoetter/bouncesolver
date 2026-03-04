@@ -4,6 +4,7 @@ program bouncesolver__test_tp_modelA
   use bouncesolver__config, only : fmt2
   use bouncesolver__tp, only : solver
   use gradmin__descent, only : minimize
+  use bouncesolver__export, only : csv_phi
 
   implicit none
 
@@ -22,7 +23,11 @@ program bouncesolver__test_tp_modelA
   tp = solver(  &
     d, V, phi_F, phi_T,  &
     alpha=2,  &
-    nx=400)
+    nx=80)
+
+  write(*,*) tp%S_min
+
+  call csv_phi(tp, "plots/tests/tp/modelA/phi.csv")
 
 contains
 
@@ -74,7 +79,7 @@ contains
 
     write(*,"(a)", advance="no")  &
       "False minimum at phi / v ="
-    write(*,fmt2) phi_F
+    write(*,fmt2) phi_F / vev
     write(*,*) "                V / v^4 =",  &
       V_min / vev ** 4
 

@@ -3,6 +3,7 @@ module bouncesolver__export
   use bouncesolver__config, only : wp
   use bouncesolver__config, only : fmt
   use bouncesolver__pdm, only : solver
+  use bouncesolver__tp, only : tpsolver => solver
   use csv_module
 
   implicit none
@@ -12,14 +13,45 @@ module bouncesolver__export
   type(csv_file) :: f
   logical :: status_ok
 
+  ! For pdm
   public :: csv_x_of_rho
   public :: csv_pot_of_rho
   public :: csv_pot_of_x
   public :: csv_phi_of_rho
   public :: csv_phi_of_x
   public :: csv_forces_of_x
+  ! For tp
+  public :: csv_phi
 
 contains
+
+  subroutine csv_phi(tp, filename)
+
+    type(tpsolver), intent(in) :: tp
+    character(len=*), intent(in) :: filename
+
+    integer :: i
+
+    call f%initialize(verbose=.true.)
+
+    call f%open(  &
+      trim(filename),  &
+      n_cols=2,  &
+      status_ok=status_ok)
+
+    call f%add(["phi1", "phi2"])
+    call f%next_row()
+
+    do i = 1, tp%nx
+      call f%add(  &
+        [tp%phi_min(i, 1), tp%phi_min(i, 2)],  &
+        real_fmt=fmt)
+      call f%next_row()
+    end do
+
+    call f%close(status_ok)
+
+  end subroutine csv_phi
 
   subroutine csv_x_of_rho(pd, filename)
 
