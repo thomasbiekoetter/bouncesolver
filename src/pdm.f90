@@ -107,6 +107,7 @@ module bouncesolver__pdm
     procedure, private :: deform_path
     procedure, public :: check_convergence
     procedure, private :: calc_msq_true
+    procedure, private :: reparam_path
   end type solver
 
   interface solver
@@ -186,25 +187,14 @@ contains
     do while (.not. converged)
       iteration = iteration + 1
       call this%bounce_on_path(too_thin)
-!     if (too_thin) then
-!       ! Only for iteration > 1 because for first
-!       ! iteration not dramatic because for the
-!       ! straight initial path the deformation only
-!       ! depends on the gradient of the potential
-!       ! NO: deform_path sets rho_max to zero then...
-!       call this%bounce_on_path_thin()
-!     end if
-!     if (too_thin) then
-!       write(*,*) "Wall too thin: approximate try."
-!       call this%bounce_on_path_thin()
-!     end if
       if (too_thin) then
         write(*,*) "Wall too thin: approximate try."
-        call this%bounce_on_path_thin2()
+        call this%bounce_on_path_thin()
       end if
-!     call this%bounce_on_path_thin()
+      call this%reparam_path()
       call this%calc_action()
       write(*,*) "Action = ", this%S, this%Sp, this%Sk
+!     call exit
       if (iteration == 1) this%S0 = this%S
       call this%calc_forces(iteration)
       call this%check_convergence(iteration, converged)
@@ -561,17 +551,6 @@ contains
     this%rho = rho
     this%xb = x(:, 1)
     this%xbdot = x(:, 2)
-    do i = 1, n
-      call this%get_index_from_x(  &
-        this%xb(i),  &
-        this%ixs(i))
-    end do
-
-    call this%calc_phi_on_bounce()
-
-    do i = 1, n
-      this%pot(i) = this%V(this%phi(i, :))
-    end do
 
     contains
 
@@ -600,148 +579,27 @@ contains
 
   end subroutine bounce_on_path
 
-! subroutine bounce_on_path_thin(this)
+  subroutine reparam_path(this)
 
-!   class(solver), intent(inout) :: this
+    class(solver), intent(inout) :: this
 
-!   real(wp) :: x_match
-!   real(wp) :: msq_true
-!   real(wp) :: d2V
-!   logical :: shooting_converged
-!   real(wp) :: x_min
-!   real(wp) :: x_max
-!   real(wp) :: rho_min
-!   real(wp) :: rho_max
-!   real(wp) :: x1
-!   real(wp) :: x0(2)
-!   integer :: over_under_flag
-!   logical :: overshot
-!   integer :: n
-!   real(wp), allocatable :: rho(:)
-!   real(wp), allocatable :: x(:, :)
-!   integer :: i
+    integer :: i
 
-!   n = this%n
+    do i = 1, this%n
+      call this%get_index_from_x(  &
+        this%xb(i),  &
+        this%ixs(i))
+    end do
 
-!   msq_true = this%d2V_dx2(1)
-!   do i = 1, n
-!     d2V = this%d2V_dx2(i)
-!     ! At the bubble wall d2V = 0, abs(d2V - msq_true) ~ msq_true
-!     ! I want to use thin-walled approximation not until bubble wall,
-!     ! but only a subrange below bubble wall, so added factor 4.
-!     if (abs(d2V - msq_true) > msq_true) then
-!       x_match = this%x(i)
-!       exit
-!     end if
-!   end do
-!   if ((i - 1) == n) then
-!     write(*,*) "x_match problem"
-!     call exit
-!   end if
+    call this%calc_phi_on_bounce()
 
-!   x_min = this%x_min
-!   x_max = this%find_x_barrier()
+    do i = 1, this%n
+      this%pot(i) = this%V(this%phi(i, :))
+    end do
 
-!   rho_min = 1.0e-4_wp
-!   rho_max = this%rho_max
+  end subroutine reparam_path
 
-!   over_under_flag = 0
-!   shooting_converged = .false.
-
-!   do while (.not. shooting_converged)
-
-!     select case (over_under_flag)
-!       case (0) ! First iteration
-!         x1 = (x_max + x_min) / 100.0e0_wp
-!       case (1) ! Overshoot
-!         x_min = x1
-!         x1 = (x_max + x_min) / 2.0e0_wp
-!       case (-1) ! Undershoot
-!         x_max = x1
-!         x1 = (x_max + x_min) / 2.0e0_wp
-!     end select
-
-!     x0(1) = x1
-!     x0(2) = 0.0e0_wp
-
-!     call integrate(  &
-!       dxdrho,  &
-!       x0,  &
-!       rho_min,  &
-!       rho_max,  &
-!       n,  &
-!       rho, x)
-
-!     if (overshot) then
-!       over_under_flag = 1
-!     else
-!       over_under_flag = -1
-!     end if
-
-!     if (is_equal(  &
-!           x_min / x_max,  &
-!           1.0e0_wp,  &
-!           eps=1.0e-10_wp)) then
-!       shooting_converged = .true.
-!     else
-!       shooting_converged = .false.
-!     end if
-
-!     if (this%verbose_level >= 2) then
-!       write(*,*) 'xxx', x_min, x_max, over_under_flag
-!     end if
-
-!   end do
-
-!   this%rho = rho
-!   this%xb = x(:, 1)
-!   this%xbdot = x(:, 2)
-!   do i = 1, n
-!     call this%get_index_from_x(  &
-!       this%xb(i),  &
-!       this%ixs(i))
-!   end do
-
-!   call this%calc_phi_on_bounce()
-
-!   do i = 1, n
-!     this%pot(i) = this%V(this%phi(i, :))
-!   end do
-
-!   contains
-
-!     function dxdrho(x, rho) result(xdot)
-
-!       real(wp), intent(in) :: x(:)
-!       real(wp), intent(in) :: rho
-!       real(wp), allocatable :: xdot(:)
-
-!       integer :: ix
-
-!       allocate(xdot(2))
-
-!       call this%get_index_from_x(x(1), ix, overshot)
-
-!       if (.not. overshot) then
-!         if (x(1) > x_match) then
-!           xdot(1) = x(2)
-!           xdot(2) = this%dV_dx(ix) -  &
-!             this%alpha * x(2) / rho
-!         else
-!           xdot(1) = x(2)
-!           xdot(2) = msq_true * x(1) -  &
-!             this%alpha * x(2) / rho
-!         end if
-!       else
-!         xdot(1) = 0.0e0_wp
-!         xdot(2) = 0.0e0_wp
-!       end if
-
-!     end function dxdrho
-
-! end subroutine bounce_on_path_thin
-
-  subroutine bounce_on_path_thin2(this)
+  subroutine bounce_on_path_thin(this)
 
     class(solver), intent(inout) :: this
 
@@ -888,17 +746,6 @@ contains
     this%rho = rho
     this%xb = x(:, 1)
     this%xbdot = x(:, 2)
-    do i = 1, n
-      call this%get_index_from_x(  &
-        this%xb(i),  &
-        this%ixs(i))
-    end do
-
-    call this%calc_phi_on_bounce()
-
-    do i = 1, n
-      this%pot(i) = this%V(this%phi(i, :))
-    end do
 
   contains
 
@@ -950,9 +797,9 @@ contains
 
       end function dxdrho
 
-  end subroutine bounce_on_path_thin2
+  end subroutine bounce_on_path_thin
 
-  subroutine bounce_on_path_thin(this)
+  subroutine bounce_on_path_thin2(this)
 
     class(solver), intent(inout) :: this
 
@@ -1196,7 +1043,7 @@ contains
 
       end function dxdrho
 
-  end subroutine bounce_on_path_thin
+  end subroutine bounce_on_path_thin2
 
   subroutine calc_msq_true(this)
 
