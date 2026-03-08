@@ -13,6 +13,8 @@ module bouncesolver__config
   integer, parameter, public :: wp = dp
 #endif
 
-  character(len=*), parameter, public :: fmt = "(es20.10)"
+  character(len=*), parameter, public :: fmt = "(G20.10)"
+  character(len=*), parameter, public :: fmt2 = "(G20.10,G20.10)"
+  character(len=*), parameter, public :: fmt3 = "(G20.10,G20.10,G20.10)"
 
 end module bouncesolver__config
