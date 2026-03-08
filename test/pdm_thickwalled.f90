@@ -17,7 +17,7 @@ program bouncesolver__test_cosmopdm
 
   real(wp), parameter :: a = 1.8e0_wp
   real(wp), parameter :: b = 0.2e0_wp
-  real(wp), parameter :: c = 0.1e0_wp
+  real(wp), parameter :: c = 0.06e0_wp
 
   type(solver) :: pd
   integer, parameter :: d = 2
@@ -38,10 +38,12 @@ program bouncesolver__test_cosmopdm
     d, V,  &
     phi_false, phi_true,  &
     alpha=2,  &
+    n_odeint=2000,  &
     verbose_level=1,  &
 !   deform_eps=1.0e-1_wp,  &
     smoothing=.true.,  &
-    maxiter=100)
+    rho_max_fac=40.0e0_wp,  &
+    maxiter=40)
 
   call csv_x_of_rho(pd, "plots/tests/thick_walled/x_of_rho.csv")
 
