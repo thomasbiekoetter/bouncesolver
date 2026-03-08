@@ -1,12 +1,14 @@
 module bouncesolver__specialfunction
 
   use bouncesolver__config, only : wp
+  use bouncesolver__util, only : pi
 
   implicit none
 
   private
 
   public :: bessel_mod_1
+  public :: bessel_mod_onehalf
 
   real(wp), parameter :: p1 = 0.5e0_wp
   real(wp), parameter :: p2 = 0.87890594e0_wp
@@ -52,5 +54,18 @@ contains
     endif
 
   end function bessel_mod_1
+
+  pure function bessel_mod_onehalf(x) result(res)
+
+    real(wp), intent(in) :: x
+    real(wp) :: res
+
+    if (abs(x) > 1.0e-20_wp) then
+      res = sqrt(2.0e0_wp / (pi * x)) * sinh(x)
+    else
+      res = sqrt(2.0e0_wp * x / pi)
+    end if
+
+  end function bessel_mod_onehalf
 
 end module bouncesolver__specialfunction
