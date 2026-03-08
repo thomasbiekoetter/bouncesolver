@@ -10,7 +10,7 @@ program bouncesolver__app_pdm_thickwalled
 
   real(wp), parameter :: a = 1.8e0_wp
   real(wp), parameter :: b = 0.2e0_wp
-  real(wp), parameter :: cmin = 0.08e0_wp
+  real(wp), parameter :: cmin = 0.06e0_wp
   real(wp), parameter :: cmax = 0.6e0_wp
   integer, parameter :: num = 101
   real(wp) :: clist(num)
@@ -54,8 +54,11 @@ program bouncesolver__app_pdm_thickwalled
 
     pd = solver(  &
       d, V, phi_false, phi_true,  &
+      alpha=2,  &
+      n_odeint=2000,  &
       maxiter=200,  &
       smoothing=.true.,  &
+      rho_max_fac=40.0e0_wp,  &
       verbose_level=1)
 
     call write_line(  &
