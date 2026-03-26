@@ -114,6 +114,7 @@ module bouncesolver__pdm
     procedure, public :: check_convergence
     procedure, private :: calc_msq_true
     procedure, private :: reparam_path
+    procedure, private :: apply_blending
   end type solver
 
   interface solver
@@ -650,15 +651,17 @@ contains
     real(wp), allocatable :: rho_num(:)
     real(wp), allocatable :: x_num(:, :)
     integer :: i
+    integer :: k
 
     n = this%n
+    k = 40
 
     b = sqrt(this%msq_true)
 
     nu = (this%alpha - 1.0e0_wp) / 2.0e0_wp
     D = this%alpha + 1
 
-    del_max = 30.0e0_wp ! -> x(0) = xT - 0 (xB - xT) ~ xT
+    del_max = 50.0e0_wp ! -> x(0) = xT - 0 (xB - xT) ~ xT
     del_min = 3.0e0_wp   ! -> x(0) = xT - 1 (xB - xT) ~ xB
     xB = this%find_x_barrier()
     xT = this%x(1)
@@ -669,7 +672,6 @@ contains
     rho_mask = linspace(r_min, r_max, n)
     drho = rho_mask(2) - rho_mask(1)
     rho_num_max = this%rho_max
-    write(*,*) xT, x_eps, xB, this%x(n)
 
     shooting_converged = .false.
     over_under_flag = 0
@@ -703,9 +705,7 @@ contains
           r_max = r
         end if
         r = (r_max + r_min) / 2.0e0_wp
-!       write(*,*) r_min, r, r_max, x_approx(r)
       end do
-!     write(*,*) r_min, r, r_max, x_approx(r)
 
       ! Check if x_eps = x_approx(r), otherwise
       ! already x(r_min) > x_eps
@@ -727,30 +727,27 @@ contains
 
       ! Take fraction r / rho_max of total points for analytic part
       n_apprx = floor((r / this%rho_max) * n)
-!     write(*,*) n_apprx
       do i = 1, n_apprx
         rho_apprx(i) = rho_mask(i)
         xb_apprx(i) = x_approx(rho_apprx(i))
-!       write(*,*) i, rho_apprx(i), xb_apprx(i)
       end do
 
       xbdot_apprx(1) = (xb_apprx(2) - xb_apprx(1)) / drho
       do i = 2, n_apprx - 1
         xbdot_apprx(i) = (xb_apprx(i + 1) - xb_apprx(i - 1)) /  &
           (2.0e0_wp * drho)
-!       write(*,*) i, xbdot_apprx(i)
       end do
       xbdot_apprx(n_apprx) = (xb_apprx(n_apprx) -  &
         xb_apprx(n_apprx - 1)) / drho
-!     write(*,*) xbdot_apprx(n_apprx - 10:n_apprx)
 
       ! now integrate the rest with odeint
-      x0(1) = xb_apprx(n_apprx)
-      x0(2) = xbdot_apprx(n_apprx)
-      rho_num_min = rho_mask(n_apprx + 1)
-      n_num = n - n_apprx
-      if (n_apprx + n_num /= n) then
-        write(*,*) "n_apprx + n_num /= n"
+      ! overlap region over k indices
+      x0(1) = xb_apprx(n_apprx - k)
+      x0(2) = xbdot_apprx(n_apprx - k)
+      rho_num_min = rho_mask(n_apprx  - k + 1)
+      n_num = n - (n_apprx - k)
+      if (n_apprx + n_num /= n + k) then
+        write(*,*) "n_apprx + n_num /= n + k"
         call exit
       end if
 
@@ -761,9 +758,6 @@ contains
         rho_num_max,  &
         n_num,  &
         rho_num, x_num)
-
-!     write(*,*) x_num(:, 1)
-!     write(*,*) overshot
 
       if (overshot) then
         over_under_flag = 1
@@ -787,22 +781,13 @@ contains
         write(*,*) del_min, del, del_max, over_under_flag
       end if
 
-      ! Deallocate these arrays because length changes
-!     deallocate(rho_num)
-!     deallocate(x_num)
-
-!     call exit
-
     end do
 
-    this%rho(1:n_apprx) = rho_apprx(1:n_apprx)
-    this%rho(n_apprx+1:n) = rho_num
-    this%xb(1:n_apprx) = xb_apprx(1:n_apprx)
-    this%xb(n_apprx+1:n) = x_num(:, 1)
-    this%xbdot(1:n_apprx) = xbdot_apprx(1:n_apprx)
-    this%xbdot(n_apprx+1:n) = x_num(:, 2)
-
-! call exit
+    call this%apply_blending(  &
+      n_apprx, k,  &
+      rho_apprx(1:n_apprx), rho_num,  &
+      xb_apprx(1:n_apprx), x_num(:, 1),  &
+      x_num(:, 2))
 
   contains
 
@@ -870,6 +855,97 @@ contains
       end function dxdrho
 
   end subroutine bounce_on_path_thin
+
+  subroutine apply_blending(  &
+    this, nstich, k,  &
+    r1, r2,  &
+    x1, x2,  &
+    x2dot)
+
+    class(solver), intent(inout) :: this
+    integer, intent(in) :: nstich
+    integer, intent(in) :: k
+    real(wp), intent(in) :: r1(:)
+    real(wp), intent(in) :: r2(:)
+    real(wp), intent(in) :: x1(:)
+    real(wp), intent(in) :: x2(:)
+    real(wp), intent(in) :: x2dot(:)
+
+    integer :: n
+    integer :: n1
+    integer :: n2
+    integer :: i
+    integer :: i1
+    integer :: i2
+    real(wp) :: kr
+    real(wp) :: t
+    real(wp) :: w
+    real(wp) :: x(this%n)
+    real(wp) :: xdot(this%n)
+    real(wp) :: r(this%n)
+    integer :: j1
+    integer :: j2
+    real(wp) :: dr
+
+    n = this%n
+    n1 = size(r1)
+    n2 = size(r2)
+
+    this%rho = 0
+    this%xb = 0
+    this%xbdot = 0
+
+    if (n1 + n2 - k /= n) then
+      write(*,*) "Problem with sizes in apply_blending."
+      call exit
+    end if
+
+    if ((size(x1) /= n1) .or. (size(x2) /= n2)) then
+      write(*,*) "Problem with x1/x2 sizes in apply_blending."
+      call exit
+    end if
+
+    ! First part: analytic solution
+    j1 = 1
+    j2 = nstich - k
+    x(j1:j2) = x1(j1:j2)
+    r(j1:j2) = r1(j1:j2)
+
+    ! Intermediate part: blend solution
+    i1 = nstich - k
+    i2 = nstich - 1
+    kr = real(k, wp)
+    do i = i1, i2
+      t = real(i - i1, wp) / kr
+      w = 1.0e0_wp - (6.0e0_wp * t ** 5 - 15.0e0_wp * t ** 4 + 10.0e0_wp * t ** 3)
+      j1 = i + 1
+      j2 = i - i1 + 1
+      x(j1) = w * x1(j1) + (1.0e0_wp - w) * x2(j2)
+      r(j1) = r1(j1)
+    end do
+
+    ! Last part: numeric solution
+    j1 = k + 1
+    j2 = nstich + 1
+    x(j2:n) = x2(j1:n2)
+    r(j2:n) = r2(j1:n2)
+
+    ! xdot: 1 -- nstich: compute here
+    ! 1 -- nstich: compute here
+    dr = r(2) - r(1)
+    do i = 1, nstich
+      xdot(i) = (x(i + 1) - x(i)) / dr
+    end do
+    ! nstich + 1 -- n: take from odeint
+    j1 = nstich + 1
+    j2 = k + 1
+    xdot(j1:n) = x2dot(j2:n2)
+
+    this%rho = r
+    this%xb = x
+    this%xbdot = xdot
+
+  end subroutine apply_blending
 
   subroutine calc_msq_true(this)
 
@@ -995,12 +1071,14 @@ contains
     real(wp) :: xb(this%n)
     real(wp) :: xbdot(this%n)
     real(wp) :: x_max
+    integer :: buffer
 
     n = this%n
     xb = this%x
     xbdot = this%xbdot
     x_max = maxval(this%x)
     clip_range = 0
+    buffer = 4
 
     do i = n / 10, n
       if (is_equal(xb(i) / x_max, 1.0e0_wp, eps=1.0e-3_wp)) then
@@ -1008,7 +1086,7 @@ contains
       else
         clip_range = 0
       end if
-      if (clip_range == 10) then
+      if (clip_range == buffer) then
         write(*,"(a,I5,a)", advance="no")  &
           "   Clipped solution" // &
           "at rho(",  i - 1, ") = "
@@ -1017,7 +1095,7 @@ contains
       end if
     end do
 
-    iclip = minval([i - 1, n])
+    iclip = minval([i - 2 * buffer, n])
     this%ib_max = iclip
 
   end subroutine clip_bounce
@@ -1460,7 +1538,7 @@ contains
 
     if (.not. too_thin) then
       if (this%Rforce / this%Rforce_previous > 1.2e0_wp) then
-        this%deform_eps = 0.5e0_wp * this%deform_eps
+        this%deform_eps = 0.8e0_wp * this%deform_eps
         if (this%verbose_level >= 1) then
           write(*,*) "Bad deformation: Decrease deform_eps to", this%deform_eps
         end if
