@@ -669,7 +669,7 @@ contains
     rho_mask = linspace(r_min, r_max, n)
     drho = rho_mask(2) - rho_mask(1)
     rho_num_max = this%rho_max
-!   write(*,*) xT, x_eps, xB, this%x(n)
+    write(*,*) xT, x_eps, xB, this%x(n)
 
     shooting_converged = .false.
     over_under_flag = 0
@@ -955,16 +955,25 @@ contains
     real(wp) :: V3
     real(wp) :: V4
     integer :: i
+    real(wp) :: buffer
+
+    buffer = 1.0e-3_wp * (this%V(this%phi(this%n, :)) - this%V(this%phi(1, :)))
 
     V1 = this%V(this%phi(1, :))
     ! Not start close to phi_true here
     do i = this%n / 10, this%n
       V2 = this%V(this%phi(i, :))
-      if ((V2 - V1) / (abs(V1) + 1.0e-10_wp) > -1.0e-2_wp) then
+!     if ((V2 - V1) / (abs(V1) + 1.0e-10_wp) > -1.0e-2_wp) then
+      if (V2 > V1) then
         V1 = V2
       else
-        x_barrier = this%x(i - 1)
-        exit
+        if (V2 < V1 - buffer) then
+          x_barrier = this%x(i - 1)
+          exit
+!       else
+!         write(*,*) V2, V1
+!         V1 = V1
+        end if
       end if
     end do
 
