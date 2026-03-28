@@ -193,18 +193,24 @@ contains
     iteration = 0
     do while (.not. converged)
       iteration = iteration + 1
-      write(*,*) "========================================"
-      write(*,*) "Iteration = ", iteration
+      if (this%verbose_level > 0) then
+        write(*,*) "========================================"
+        write(*,*) "Iteration = ", iteration
+      end if
       call this%bounce_on_path(too_thin)
       if (too_thin) then
+        if (this%verbose_level > 0) then
         write(*,*) "  Wall is thin: approximate solution."
+        end if
         call this%bounce_on_path_thin()
         if (this%error_thin_bounce) exit
       end if
       call this%reparam_path()
       call this%calc_action()
-      write(*,'(a)', advance='no') "   Action = "
-      write(*,fmt3) this%S, this%Sp, this%Sk
+      if (this%verbose_level > 0) then
+        write(*,'(a)', advance='no') "   Action = "
+        write(*,fmt3) this%S, this%Sp, this%Sk
+      end if
       if (iteration == 1) this%S0 = this%S
       call this%calc_forces(iteration)
       call this%check_convergence(iteration, too_thin, converged)
@@ -1087,10 +1093,12 @@ contains
         clip_range = 0
       end if
       if (clip_range == buffer) then
-        write(*,"(a,I5,a)", advance="no")  &
-          "   Clipped solution" // &
-          "at rho(",  i - 1, ") = "
-        write(*,fmt) this%rho(i - 1)
+        if (this%verbose_level > 0) then
+          write(*,"(a,I5,a)", advance="no")  &
+            "   Clipped solution" // &
+            "at rho(",  i - 1, ") = "
+          write(*,fmt) this%rho(i - 1)
+        end if
         exit
       end if
     end do
@@ -1487,8 +1495,10 @@ contains
     P_max = maxval(abs(this%Pforce))
 
     this%Rforce = N_max / P_max
-    write(*,'(a)', advance='no') "   Force ratio ="
-    write(*,fmt) this%Rforce
+    if (this%verbose_level > 0) then
+      write(*,'(a)', advance='no') "   Force ratio ="
+      write(*,fmt) this%Rforce
+    end if
 
     if ((this%Rforce < this%Rforce_best) .or. (iteration == 1)) then
       this%Rforce_best = this%Rforce
