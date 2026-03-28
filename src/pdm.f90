@@ -216,7 +216,9 @@ contains
       call this%check_convergence(iteration, too_thin, converged)
       if (.not. converged) call this%deform_path()
       if (this%spline_fail) exit
-      write(*,*)
+      if (this%verbose_level > 0) then
+        write(*,*)
+      end if
     end do
 
     this%S = this%S_best
