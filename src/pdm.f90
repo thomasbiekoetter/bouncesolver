@@ -27,6 +27,17 @@ module bouncesolver__pdm
   real(wp), parameter :: x_min_start = 1.0e-8_wp
   real(wp), parameter :: rho_max_fac_default = 20.0e0_wp
 
+  integer, parameter :: solver_status_ok = 0
+  integer, parameter :: fail_construct_starting_path = -11
+  integer, parameter :: fail_estimate_rho_max = -12
+  integer, parameter :: fail_calc_msq_true = -13
+  integer, parameter :: fail_bounce_on_path_thin_init = -14
+  integer, parameter :: fail_bounce_on_path_thin_stitch = -15
+  integer, parameter :: fail_solver_alpha = -16
+  integer, parameter :: fail_deform_path_initsplines = -17
+  integer, parameter :: fail_deform_path_evalsplines = -18
+  integer, parameter :: fail_deform_path_evalsplines_nans = -19
+
   abstract interface
     function V_abstract(x) result(y)
       import wp
@@ -94,7 +105,7 @@ module bouncesolver__pdm
     logical :: smoothing = .false.
     real(wp) :: msq_false
     real(wp) :: msq_true
-    logical :: error_thin_bounce = .false.
+    integer :: exit_status
   contains
     procedure, private :: allocate_arrays
     procedure, private :: construct_starting_path
@@ -115,6 +126,7 @@ module bouncesolver__pdm
     procedure, private :: calc_msq_true
     procedure, private :: reparam_path
     procedure, private :: apply_blending
+    procedure, private :: print_exit_status
   end type solver
 
   interface solver
@@ -151,11 +163,16 @@ contains
     integer :: iteration
     logical :: too_thin
 
+    this%exit_status = solver_status_ok
+
     this%d = d
     this%V => V
     this%phi_false = phi_false
     this%phi_true = phi_true
     if (present(alpha)) then
+      if ((alpha < 2) .or. (alpha > 3)) then
+        this%exit_status = fail_solver_alpha
+      end if
       this%alpha = alpha
     else
       this%alpha = alpha_default
@@ -186,36 +203,80 @@ contains
     this%kx_bspls = 5
 
     call this%allocate_arrays()
+    if (this%exit_status /= solver_status_ok) then
+      call this%print_exit_status()
+      return
+    end if
+
     call this%construct_starting_path()
+    if (this%exit_status /= solver_status_ok) then
+      call this%print_exit_status()
+      return
+    end if
+
     call this%estimate_rho_max()
+    if (this%exit_status /= solver_status_ok) then
+      call this%print_exit_status()
+      return
+    end if
+
     call this%calc_msq_true()
+    if (this%exit_status /= solver_status_ok) then
+      call this%print_exit_status()
+      return
+    end if
+
     converged = .false.
     iteration = 0
+
     do while (.not. converged)
+
       iteration = iteration + 1
+
       if (this%verbose_level > 0) then
         write(*,*) "========================================"
         write(*,*) "Iteration = ", iteration
       end if
+
       call this%bounce_on_path(too_thin)
+
       if (too_thin) then
+
         if (this%verbose_level > 0) then
-        write(*,*) "  Wall is thin: approximate solution."
+          write(*,*) "  Wall is thin: approximate solution."
         end if
+
         call this%bounce_on_path_thin()
-        if (this%error_thin_bounce) exit
+        if (this%exit_status /= solver_status_ok) then
+          call this%print_exit_status()
+          return
+        end if
+
       end if
+
       call this%reparam_path()
+
       call this%calc_action()
+
       if (this%verbose_level > 0) then
         write(*,'(a)', advance='no') "   Action = "
         write(*,fmt3) this%S, this%Sp, this%Sk
       end if
+
       if (iteration == 1) this%S0 = this%S
+
       call this%calc_forces(iteration)
+
       call this%check_convergence(iteration, too_thin, converged)
+
       if (.not. converged) call this%deform_path()
+      if (this%exit_status /= solver_status_ok) then
+        call this%print_exit_status()
+        return
+      end if
+
       if (this%spline_fail) exit
+
       if (this%verbose_level > 0) then
         write(*,*)
       end if
@@ -317,8 +378,8 @@ contains
       dphidx = norm2(phi(i + 1, :) - phi(i, :)) /  &
         (x(i + 1) - x(i))
       if (.not. is_equal(abs(dphidx), 1.0e0_wp)) then
-        write(*,*) "init path went wrong"
-        call exit
+        this%exit_status = fail_construct_starting_path
+        return
       end if
     end do
 
@@ -428,6 +489,12 @@ contains
     real(wp) :: msq_false
 
     msq_false = this%d2V_dx2(this%n)
+
+    if (msq_false <= 0.0e0_wp) then
+      this%exit_status = fail_estimate_rho_max
+      return
+    end if
+
     this%msq_false = msq_false
 
     this%rho_max = this%rho_max_fac / sqrt(msq_false)
@@ -658,6 +725,8 @@ contains
     real(wp) :: rho_num_max
     real(wp), allocatable :: rho_num(:)
     real(wp), allocatable :: x_num(:, :)
+    integer :: nuinv
+
     integer :: i
     integer :: k
 
@@ -668,6 +737,8 @@ contains
 
     nu = (this%alpha - 1.0e0_wp) / 2.0e0_wp
     D = this%alpha + 1
+
+    nuinv = 2 / (this%alpha - 1)
 
     del_max = 50.0e0_wp ! -> x(0) = xT - 0 (xB - xT) ~ xT
     del_min = 3.0e0_wp   ! -> x(0) = xT - 1 (xB - xT) ~ xB
@@ -718,9 +789,8 @@ contains
       ! Check if x_eps = x_approx(r), otherwise
       ! already x(r_min) > x_eps
       if (.not. is_equal(x_eps, x_approx(r), eps=1.0e-4_wp)) then
-        write(*,*) "  Initializing analytic apprx went wrong."
-        write(*,*) x_eps, x_approx(r)
-        this%error_thin_bounce = .true.
+        if (this%verbose_level >= 2) write(*,*) x_eps, x_approx(r)
+        this%exit_status = fail_bounce_on_path_thin_init
         return
       end if
 
@@ -728,7 +798,7 @@ contains
       if (r > 0.9e0_wp * this%rho_max) then
         r = 0.6 * this%rho_max
         bubble_not_fitting = .true.
-        write(*,*) "Probably rho_max too small."
+        if (this%verbose_level >= 2) write(*,*) "Probably rho_max too small."
       else
         bubble_not_fitting = .false.
       end if
@@ -755,8 +825,9 @@ contains
       rho_num_min = rho_mask(n_apprx  - k + 1)
       n_num = n - (n_apprx - k)
       if (n_apprx + n_num /= n + k) then
-        write(*,*) "n_apprx + n_num /= n + k"
-        call exit
+        if (this%verbose_level >= 2) write(*,*) "n_apprx + n_num /= n + k"
+        this%exit_status = fail_bounce_on_path_thin_stitch
+        return
       end if
 
       call integrate(  &
@@ -825,11 +896,6 @@ contains
 
       real(wp), intent(in) :: br
       real(wp) :: y
-
-      integer :: nuinv
-
-      !  nu = (alpha - 1) / 2
-      nuinv = 2 / (this%alpha - 1)
 
       if (nuinv == 2) then
         y = bessel_mod_onehalf(br) ! = sqrt(2.0e0_wp / (pi * br)) * sinh(br)
@@ -960,6 +1026,10 @@ contains
     class(solver), intent(inout) :: this
 
     this%msq_true = this%d2V_dx2(1)
+
+    if (this%msq_true <= 0.0e0_wp) then
+      this%exit_status = fail_calc_msq_true
+    end if
 
   end subroutine calc_msq_true
 
@@ -1140,9 +1210,6 @@ contains
       fpre = 4.0e0_wp * pi * rho ** 2
     else if (this%alpha == 3) then
       fpre = 2.0e0_wp * pi ** 2 * rho ** 3
-    else
-      write(*,*) "Wrong alpha value."
-      call exit
     end if
 
     pot_term = this%pot(1:n) - this%pot(n)
@@ -1407,9 +1474,12 @@ contains
         x_spline,  &
         phi_spline(:, j), this%kx_bspls, this%iflag_bspls(j))
       if (this%iflag_bspls(j) /= 0) then
-        write(*,*) 'Error initializing ', j, 'D spline: ' //  &
-          get_status_message(this%iflag_bspls(j))
-        call exit
+        if (this%verbose_level >= 2) then
+          write(*,*) 'Error initializing ', j, 'D spline: ' //  &
+            get_status_message(this%iflag_bspls(j))
+        end if
+        this%exit_status = fail_deform_path_initsplines
+        return
       end if
     end do
 
@@ -1422,14 +1492,20 @@ contains
         call this%bspls(j)%evaluate(  &
           x(i), idx_bspls, phi(i, j), this%iflag_bspls(j))
         if (ieee_is_nan(phi(i, j))) then
-          write(*,*) i, j, phi(i, j), this%iflag_bspls(j)
-          call exit
+          if (this%verbose_level >= 2) then
+            write(*,*) i, j, phi(i, j), this%iflag_bspls(j)
+          end if
+          this%exit_status = fail_deform_path_evalsplines_nans
+          return
         end if
       end do
       if (this%iflag_bspls(j) /= 0) then
-        write(*,*) 'Error evaluating ', j, 'D spline: ' //  &
-          get_status_message(this%iflag_bspls(j))
-        call exit
+        if (this%verbose_level >= 2) then
+          write(*,*) 'Error evaluating ', j, 'D spline: ' //  &
+            get_status_message(this%iflag_bspls(j))
+        end if
+        this%exit_status = fail_deform_path_evalsplines
+        return
       end if
     end do
 
@@ -1560,5 +1636,44 @@ contains
     this%Rforce_previous = this%Rforce
 
   end subroutine check_convergence
+
+  subroutine print_exit_status(this)
+
+    class(solver), intent(inout) :: this
+
+    select case (this%exit_status)
+      case (fail_construct_starting_path)
+        write(*,*) "Constructing initial straight path"
+        write(*,*) "guess went wrong."
+      case (fail_estimate_rho_max)
+        write(*,*) "Could not estimate max rho value"
+        write(*,*) "because curvature in false minimum"
+        write(*,*) "was computed to be negative."
+        write(*,*) "Check argument phi_false."
+      case (fail_calc_msq_true)
+        write(*,*) "Could not calculate msq_true"
+        write(*,*) "because curvature in true minimum"
+        write(*,*) "was computed to be negative."
+        write(*,*) "Check argument phi_true."
+      case (fail_bounce_on_path_thin_init)
+        write(*,*) "Initializing analytic approximation for"
+        write(*,*) "small rho in bounce_on_path_thin went wrong."
+      case (fail_bounce_on_path_thin_stitch)
+        write(*,*) "A problem appeared in determining the"
+        write(*,*) "lengths of the analytic and numeric parts"
+        write(*,*) "of the solution in bounce_on_path_thin went wrong."
+      case (fail_solver_alpha)
+        write(*,*) "Wrong alpha value. Possible values are 2 or 3."
+      case (fail_deform_path_initsplines)
+        write(*,*) "An error occured when constructing the B-spline"
+        write(*,*) "interpolations of the path before deformation."
+      case (fail_deform_path_evalsplines_nans)
+        write(*,*) "Some of the B-spline interpolations return nans."
+      case (fail_deform_path_evalsplines)
+        write(*,*) "During the evaluation of the B-spline interpolations"
+        write(*,*) "an error occured."
+    end select
+
+  end subroutine print_exit_status
 
 end module bouncesolver__pdm
