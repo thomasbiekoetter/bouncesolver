@@ -45,6 +45,8 @@ program bouncesolver__test_cosmopdm
     rho_max_fac=40.0e0_wp,  &
     maxiter=40)
 
+  call pd%print_exit_status()
+
   call csv_x_of_rho(pd, "plots/tests/thick_walled/x_of_rho.csv")
 
   call csv_pot_of_rho(pd, "plots/tests/thick_walled/pot_of_rho.csv")

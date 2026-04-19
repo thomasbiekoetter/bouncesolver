@@ -37,6 +37,11 @@ module bouncesolver__pdm
   integer, parameter :: fail_deform_path_initsplines = -17
   integer, parameter :: fail_deform_path_evalsplines = -18
   integer, parameter :: fail_deform_path_evalsplines_nans = -19
+  integer, parameter :: fail_deform_path_evalsplines_unitlen = -20
+  integer, parameter :: fail_d2V_dx2 = -21
+  integer, parameter :: fail_dV_dx = -22
+  integer, parameter :: fail_find_x_barrier = -23
+  integer, parameter :: status_maxiter = 1
 
   abstract interface
     function V_abstract(x) result(y)
@@ -90,7 +95,6 @@ module bouncesolver__pdm
     type(bspline_1d), allocatable :: bspls(:)
     integer, allocatable :: iflag_bspls(:)
     integer :: kx_bspls
-    logical :: spline_fail = .false.
     real(wp), allocatable :: x_best(:)
     real(wp), allocatable :: xb_best(:)
     real(wp), allocatable :: xbdot_best(:)
@@ -126,7 +130,7 @@ module bouncesolver__pdm
     procedure, private :: calc_msq_true
     procedure, private :: reparam_path
     procedure, private :: apply_blending
-    procedure, private :: print_exit_status
+    procedure, public :: print_exit_status
   end type solver
 
   interface solver
@@ -275,11 +279,10 @@ contains
         return
       end if
 
-      if (this%spline_fail) exit
-
       if (this%verbose_level > 0) then
         write(*,*)
       end if
+
     end do
 
     this%S = this%S_best
@@ -427,8 +430,8 @@ contains
     else if (i > 2 * dj) then
       j = i - dj
     else
-      write(*,*) "Problem in d2V_dx2"
-      call exit
+      this%exit_status = fail_d2V_dx2
+      return
     end if
 
     Vm = pot(j - dj)
@@ -475,8 +478,8 @@ contains
       Vp = pot(i)
       h = x(i) - x(i - di)
     else
-      write(*,*) "Problem in dV_dx"
-      call exit
+      this%exit_status = fail_dV_dx
+      return
     end if
 
     dV = (Vp - Vm) / h
@@ -581,6 +584,10 @@ contains
     n = this%n
     x_min = this%x_min
     x_max = this%find_x_barrier()
+    if (x_max < 0.0e0_wp) then
+      this%exit_status = fail_find_x_barrier
+      return
+    end if
 
     rho_min = 1.0e-4_wp
     rho_max = this%rho_max
@@ -742,7 +749,13 @@ contains
 
     del_max = 50.0e0_wp ! -> x(0) = xT - 0 (xB - xT) ~ xT
     del_min = 3.0e0_wp   ! -> x(0) = xT - 1 (xB - xT) ~ xB
+
     xB = this%find_x_barrier()
+    if (xB < 0.0e0_wp) then
+      this%exit_status = fail_find_x_barrier
+      return
+    end if
+
     xT = this%x(1)
 
     r_min = 1.0e-2_wp * real(this%rho_max / n, wp)
@@ -1132,8 +1145,9 @@ contains
     end do
 
     if (i == this%n + 1) then
-      write(*,*) "No potential barrier on path."
-      call exit
+      ! If no barrier found than retourn negative x_barrier
+      ! Catch this error in bounce_on_path().
+      x_barrier = -1.0e0_wp
     end if
 
   end function find_x_barrier
@@ -1531,17 +1545,17 @@ contains
       dphidx = norm2(phi(i + 1, :) - phi(i, :)) /  &
         (x(i + 1) - x(i))
       if (.not. is_equal(abs(dphidx), 1.0e0_wp)) then
-        if (i == 1) then
-          write(*,*) "spline path went wrong"
-          write(*,*) i, dphidx
-          write(*,*) x(i + 1), x(i)
-          write(*,*) phi(i + 1, :)
-          write(*,*) phi(i, :)
-          write(*,*) x(i + 1) - x(i)
-          write(*,*) norm2(phi(i + 1, :) - phi(i, :))
-        end if
-        this%spline_fail = .true.
-!       call exit
+!       if (i == 1) then
+!         write(*,*) "spline path went wrong"
+!         write(*,*) i, dphidx
+!         write(*,*) x(i + 1), x(i)
+!         write(*,*) phi(i + 1, :)
+!         write(*,*) phi(i, :)
+!         write(*,*) x(i + 1) - x(i)
+!         write(*,*) norm2(phi(i + 1, :) - phi(i, :))
+!       end if
+        this%exit_status = fail_deform_path_evalsplines_unitlen
+        return
       end if
     end do
 
@@ -1614,7 +1628,10 @@ contains
 
     if (iteration == this%maximum_iterations) then
       conv = .true.
-      write(*,*) "Maximum iterations reached:", this%maximum_iterations
+      this%exit_status = status_maxiter
+      if (this%verbose_level >= 1) then
+        write(*,*) "Maximum iterations reached:", this%maximum_iterations
+      end if
     end if
 
 !   if (is_equal(this%Rforce / this%Rforce_previous, 1.0e0_wp, eps=1.0e-2_wp)) then
@@ -1642,6 +1659,8 @@ contains
     class(solver), intent(inout) :: this
 
     select case (this%exit_status)
+      case (solver_status_ok)
+        write(*,*) "No errors. Converged corectly."
       case (fail_construct_starting_path)
         write(*,*) "Constructing initial straight path"
         write(*,*) "guess went wrong."
@@ -1672,6 +1691,27 @@ contains
       case (fail_deform_path_evalsplines)
         write(*,*) "During the evaluation of the B-spline interpolations"
         write(*,*) "an error occured."
+      case (fail_deform_path_evalsplines_unitlen)
+        write(*,*) "The B-spline approximation of the deformed path"
+        write(*,*) "does not satisfy |d phi / dx| = 1."
+      case (fail_d2V_dx2)
+        write(*,*) "d2V_dx2 could not be evaluated for some index"
+        write(*,*) "along the path."
+      case (fail_dV_dx)
+        write(*,*) "dV_dx could not be evaluated for some index"
+        write(*,*) "along the path."
+      case (fail_find_x_barrier)
+        write(*,*) "Could not determine peak of potential barrier"
+        write(*,*) "along the path. This could mean that either"
+        write(*,*) "phi_true or phi_min are not the exact locations"
+        write(*,*) "of the minima in the potential, or that there"
+        write(*,*) "either of those is a saddle point."
+      case (status_maxiter)
+        write(*,*) "Maximum number of iterations have been performed"
+        write(*,*) "before the convergence condition was satisfied."
+        write(*,*) "The path might not yet be optimal."
+      case default
+        write(*,*) "An unknown error occured."
     end select
 
   end subroutine print_exit_status
