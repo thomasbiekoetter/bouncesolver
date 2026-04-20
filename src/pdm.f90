@@ -41,6 +41,7 @@ module bouncesolver__pdm
   integer, parameter :: fail_d2V_dx2 = -21
   integer, parameter :: fail_dV_dx = -22
   integer, parameter :: fail_find_x_barrier = -23
+  integer, parameter :: fail_apply_blending = -24
   integer, parameter :: status_maxiter = 1
 
   abstract interface
@@ -983,13 +984,13 @@ contains
     this%xbdot = 0
 
     if (n1 + n2 - k /= n) then
-      write(*,*) "Problem with sizes in apply_blending."
-      call exit
+      this%exit_status = fail_apply_blending
+      return
     end if
 
     if ((size(x1) /= n1) .or. (size(x2) /= n2)) then
-      write(*,*) "Problem with x1/x2 sizes in apply_blending."
-      call exit
+      this%exit_status = fail_apply_blending
+      return
     end if
 
     ! First part: analytic solution
@@ -1349,7 +1350,6 @@ contains
           this%verbose_level >= 3) then
         write(*,*) "Problem with pathdir in calc_forces."
         write(*,*) i, pathdir(i, :), norm2(pathdir(i, :))
-!       call exit
       end if
     end do
 
@@ -1706,6 +1706,8 @@ contains
         write(*,*) "phi_true or phi_min are not the exact locations"
         write(*,*) "of the minima in the potential, or that there"
         write(*,*) "either of those is a saddle point."
+      case (fail_apply_blending)
+        write(*,*) "Problem with sizes of arrays in apply_blending."
       case (status_maxiter)
         write(*,*) "Maximum number of iterations have been performed"
         write(*,*) "before the convergence condition was satisfied."
