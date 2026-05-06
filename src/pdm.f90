@@ -833,7 +833,8 @@ contains
         xb_apprx(n_apprx - 1)) / drho
 
       ! now integrate the rest with odeint
-      ! overlap region over k indices
+      ! overlap region over k indices (check that n_aprrx > k)
+      if (n_apprx <= k) n_apprx = k + 10
       x0(1) = xb_apprx(n_apprx - k)
       x0(2) = xbdot_apprx(n_apprx - k)
       rho_num_min = rho_mask(n_apprx  - k + 1)
