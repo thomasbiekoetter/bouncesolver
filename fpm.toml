@@ -33,6 +33,13 @@ main = "pdm_thickwalled.f90"
 name = "pdm_thickwalled"
 source-dir = "test"
 main = "pdm_thickwalled.f90"
+[[test]]
+name = "cxsm"
+source-dir = "test"
+main = "cxsm.f90"
+[executable.dependencies]
+csv-fortran = { git="https://github.com/jacobwilliams/csv-fortran.git" }
+cxsm = { git="git@gitlab.com:gws-in-the-cxsm/cxsm.git", profile="release" }
 [features]
 debug.flags = "-fPIC -O0 -g "
 debug.gfortran.flags = "-fbounds-check -fbacktrace -Wall -Wuninitialized -fmax-errors=1 -fcheck=all -ffpe-trap=invalid,zero,overflow"
