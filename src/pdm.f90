@@ -11,6 +11,7 @@ module bouncesolver__pdm
   use bouncesolver__specialfunction, only : bessel_mod_1
   use bouncesolver__specialfunction, only : bessel_mod_onehalf
   use odeint__rk4, only : integrate
+  use gradmin__descent, only : minimize
   use gradmin__derivatives, only : gradient
   use bspline_module, only : bspline_1d
   use bspline_module, only : get_status_message
@@ -111,6 +112,7 @@ module bouncesolver__pdm
     real(wp) :: msq_false
     real(wp) :: msq_true
     integer :: exit_status
+    integer :: init_path_mode = 1
   contains
     procedure, private :: allocate_arrays
     procedure, private :: construct_starting_path
@@ -147,6 +149,7 @@ contains
     maxiter, deform_eps,  &
     Rforce_threshold,  &
     smoothing,  &
+    init_path_mode,  &
     verbose_level) result(this)
 
     integer, intent(in) :: d
@@ -161,6 +164,7 @@ contains
     real(wp), intent(in), optional :: deform_eps
     real(wp), intent(in), optional :: Rforce_threshold
     logical, intent(in), optional :: smoothing
+    integer, intent(in), optional :: init_path_mode
     integer, intent(in), optional :: verbose_level
     type(solver) :: this
 
@@ -203,6 +207,8 @@ contains
 
     if (present(smoothing)) this%smoothing = smoothing
 
+    if (present(init_path_mode)) this%init_path_mode = init_path_mode
+
     if (present(verbose_level)) this%verbose_level = verbose_level
 
     this%kx_bspls = 5
@@ -213,7 +219,7 @@ contains
       return
     end if
 
-    call this%construct_starting_path()
+    call this%construct_starting_path(this%init_path_mode)
     if (this%exit_status /= solver_status_ok) then
       call this%print_exit_status()
       return
@@ -350,9 +356,10 @@ contains
 
   end subroutine allocate_arrays
 
-  subroutine construct_starting_path(this)
+  subroutine construct_starting_path(this, mode)
 
     class(solver), intent(inout) :: this
+    integer, intent(in) :: mode
 
     real(wp) :: x(this%n)
     real(wp) :: phi(this%n, this%d)
@@ -361,15 +368,32 @@ contains
     integer :: i
     integer :: n
     real(wp) :: dphidx
+    real(wp) :: phi1_pivot
+    real(wp) :: vmin
+    real(wp) :: pmin(this%d - 1)
+    real(wp) :: phi_pivot(this%d - 1)
 
     n = this%n
 
     x = linspace(0.0e0_wp, 1.0e0_wp, n)
 
-    do i = 1, n
-      phi(i, :) = this%phi_true +  &
-        x(i) * (this%phi_false - this%phi_true)
-    end do
+    if (mode == 1) then ! Straight path
+      do i = 1, n
+        phi(i, :) = this%phi_true +  &
+          x(i) * (this%phi_false - this%phi_true)
+      end do
+    else if (mode == 2) then ! Path along well
+      do i = 1, n
+        phi(i, :) = this%phi_true +  &
+          x(i) * (this%phi_false - this%phi_true)
+        phi1_pivot = phi(i, 1)
+        call minimize(V, phi(i, 2 : this%d), pmin, vmin, maxiter=1000, mode=1)
+        phi(i, 2 : this%d) = pmin
+!       write(*,*) i, phi(i, :)
+      end do
+    end if
+
+!   call exit
 
     do i = 1, n - 1
       dx(i) = norm2(phi(i + 1, :) - phi(i, :))
@@ -394,6 +418,28 @@ contains
     this%x = x
     this%phi = phi
     this%pot = pot
+
+    contains
+
+      function V(x) result(y)
+
+        real(wp), intent(in) :: x(:)
+!       real(wp), intent(in) :: x(this%d - 1)
+        real(wp) :: y
+
+        real(wp) :: x_pivot(this%d)
+
+        if (this%d > 2) then
+          x_pivot(2 : this%d) = x
+          x_pivot(1) = phi1_pivot
+        else
+          x_pivot(2) = x(1)
+          x_pivot(1) = phi1_pivot
+        end if
+
+        y = this%V(x_pivot)
+
+      end function V
 
   end subroutine construct_starting_path
 

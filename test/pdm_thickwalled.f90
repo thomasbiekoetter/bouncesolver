@@ -43,6 +43,7 @@ program bouncesolver__test_cosmopdm
 !   deform_eps=1.0e-1_wp,  &
     smoothing=.true.,  &
     rho_max_fac=40.0e0_wp,  &
+    init_path_mode=2,  &
     maxiter=40)
 
   call pd%print_exit_status()
