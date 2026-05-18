@@ -42,7 +42,7 @@ program bouncesolver__test_cxsm
     singlet_phase=singlet_phase)
   write(*,*) "Tcrit =", Tcrit
 
-  T = 52.0e0_wp
+  T = 50.318e0_wp
   write(*,*) "Computing bounce at T =", T
 
   call export_potential(  &
@@ -54,30 +54,28 @@ program bouncesolver__test_cxsm
   call ewsb_phase%get_x_at_T(T, xT)
   call minimize(V, xT, xmin, Vmin, maxiter=10000, mode=1)
   xT = xmin
-  write(*,*) "   xT =", xT
-  write(*,*) V(xT)
+  write(*,*) "    xT =", xT
+  write(*,*) " V(xT) =", V(xT)
 
   ! False minimum
   call singlet_phase%get_x_at_T(T, xF)
   call minimize(V, xF, xmin, Vmin, maxiter=10000, mode=1)
   xF = xmin
-  write(*,*) "   xF =", xF
-  write(*,*) V(xF)
-
-  write(*,*) ewsb_phase%Tmax
-  write(*,*) singlet_phase%Tmin
+  write(*,*) "    xF =", xF
+  write(*,*) " V(xF) =", V(xF)
 
   pd = solver(  &
     2, V, xF, xT,  &
-    rho_max_fac=100.0e0_wp,  &
+    rho_max_fac=40.0e0_wp,  &
     n_odeint=2000,  &
-    deform_eps=2.0e-2_wp,  &
+    deform_eps=2.0e-3_wp,  &
     Rforce_threshold=5.0e-2_wp,  &
-    maxiter=1,  &
+    maxiter=10,  &
     init_path_mode=2,  &
-    verbose_level=2)
+    barrier_buffer=1.0e-5_wp,  &
+    verbose_level=1)
 
-  call pd%print_exit_status()
+  if (pd%exit_status >= 0) write(*,*) "S = ", pd%S
 
   call csv_x_of_rho(pd, "plots/tests/cxsm/x_of_rho.csv")
   call csv_pot_of_rho(pd, "plots/tests/cxsm/pot_of_rho.csv")

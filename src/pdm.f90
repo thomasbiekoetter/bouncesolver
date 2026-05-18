@@ -114,6 +114,7 @@ module bouncesolver__pdm
     real(wp) :: msq_true
     integer :: exit_status
     integer :: init_path_mode = 1
+    real(wp) :: barrier_buffer = 1.0e-3_wp
   contains
     procedure, private :: allocate_arrays
     procedure, private :: construct_starting_path
@@ -151,6 +152,7 @@ contains
     Rforce_threshold,  &
     smoothing,  &
     init_path_mode,  &
+    barrier_buffer,  &
     verbose_level) result(this)
 
     integer, intent(in) :: d
@@ -167,6 +169,7 @@ contains
     logical, intent(in), optional :: smoothing
     integer, intent(in), optional :: init_path_mode
     integer, intent(in), optional :: verbose_level
+    real(wp), intent(in), optional :: barrier_buffer
     type(solver) :: this
 
     logical :: converged
@@ -210,6 +213,8 @@ contains
 
     if (present(init_path_mode)) this%init_path_mode = init_path_mode
 
+    if (present(barrier_buffer)) this%barrier_buffer = barrier_buffer
+
     if (present(verbose_level)) this%verbose_level = verbose_level
 
     this%kx_bspls = 5
@@ -251,6 +256,10 @@ contains
       end if
 
       call this%bounce_on_path(too_thin)
+      if (this%exit_status /= solver_status_ok) then
+        call this%print_exit_status()
+        return
+      end if
 
       if (too_thin) then
 
@@ -1176,22 +1185,18 @@ contains
     integer :: i
     real(wp) :: buffer
 
-    buffer = 1.0e-3_wp * (this%V(this%phi(this%n, :)) - this%V(this%phi(1, :)))
+    buffer = this%barrier_buffer * (this%V(this%phi(this%n, :)) - this%V(this%phi(1, :)))
 
     V1 = this%V(this%phi(1, :))
     ! Not start close to phi_true here
     do i = this%n / 10, this%n
       V2 = this%V(this%phi(i, :))
-!     if ((V2 - V1) / (abs(V1) + 1.0e-10_wp) > -1.0e-2_wp) then
       if (V2 > V1) then
         V1 = V2
       else
         if (V2 < V1 - buffer) then
           x_barrier = this%x(i - 1)
           exit
-!       else
-!         write(*,*) V2, V1
-!         V1 = V1
         end if
       end if
     end do
@@ -1782,6 +1787,8 @@ contains
         write(*,*) "phi_true or phi_min are not the exact locations"
         write(*,*) "of the minima in the potential, or that there"
         write(*,*) "either of those is a saddle point."
+        write(*,*) "If you are sure that there should be a barrier,"
+        write(*,*) "you can try to reduce barrier_buffer (default is 1e-3)."
       case (fail_apply_blending)
         write(*,*) "Problem with sizes of arrays in apply_blending."
       case (fail_xdot_wiggles)
