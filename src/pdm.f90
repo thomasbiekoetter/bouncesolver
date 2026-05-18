@@ -784,7 +784,7 @@ contains
     integer :: k
 
     n = this%n
-    k = 40
+    k = 40 * int(n / 2000)
 
     b = sqrt(this%msq_true)
 
