@@ -387,13 +387,12 @@ contains
         phi(i, :) = this%phi_true +  &
           x(i) * (this%phi_false - this%phi_true)
         phi1_pivot = phi(i, 1)
-        call minimize(V, phi(i, 2 : this%d), pmin, vmin, maxiter=1000, mode=1)
+        call minimize(  &
+          V, phi(i, 2 : this%d), pmin, vmin,  &
+          maxiter=1000, mode=1, eps_linesearch=1.0e-6_wp)
         phi(i, 2 : this%d) = pmin
-!       write(*,*) i, phi(i, :)
       end do
     end if
-
-!   call exit
 
     do i = 1, n - 1
       dx(i) = norm2(phi(i + 1, :) - phi(i, :))
