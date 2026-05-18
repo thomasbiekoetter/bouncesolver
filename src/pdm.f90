@@ -43,6 +43,7 @@ module bouncesolver__pdm
   integer, parameter :: fail_dV_dx = -22
   integer, parameter :: fail_find_x_barrier = -23
   integer, parameter :: fail_apply_blending = -24
+  integer, parameter :: fail_xdot_wiggles = -25
   integer, parameter :: status_maxiter = 1
 
   abstract interface
@@ -268,6 +269,10 @@ contains
       call this%reparam_path()
 
       call this%calc_action()
+      if (this%exit_status /= solver_status_ok) then
+        call this%print_exit_status()
+        return
+      end if
 
       if (this%verbose_level > 0) then
         write(*,'(a)', advance='no') "   Action = "
@@ -281,7 +286,7 @@ contains
       call this%check_convergence(iteration, too_thin, converged)
 
       if (.not. converged) call this%deform_path()
-      if (this%exit_status /= solver_status_ok) then
+      if (this%exit_status < solver_status_ok) then
         call this%print_exit_status()
         return
       end if
@@ -1211,6 +1216,9 @@ contains
     real(wp) :: xbdot(this%n)
     real(wp) :: x_max
     integer :: buffer
+    logical :: was_clipped
+    integer :: xbdot_zeros
+    logical :: was_positive
 
     n = this%n
     xb = this%x
@@ -1218,6 +1226,7 @@ contains
     x_max = maxval(this%x)
     clip_range = 0
     buffer = 4
+    was_clipped = .false.
 
     do i = n / 10, n
       if (is_equal(xb(i) / x_max, 1.0e0_wp, eps=1.0e-3_wp)) then
@@ -1226,6 +1235,7 @@ contains
         clip_range = 0
       end if
       if (clip_range == buffer) then
+        was_clipped = .true.
         if (this%verbose_level > 0) then
           write(*,"(a,I5,a)", advance="no")  &
             "   Clipped solution" // &
@@ -1238,6 +1248,26 @@ contains
 
     iclip = minval([i - 2 * buffer, n])
     this%ib_max = iclip
+
+    ! Check bounce after clipping
+    ! by counting zeros of xbdot
+    !   -> should be zero
+    was_positive = .true.
+    xbdot_zeros = 0
+    do i = n / 10, this%ib_max
+      if ((xbdot(i) < 0.0e0_wp) .and. (was_positive)) then
+        xbdot_zeros = xbdot_zeros + 1
+        was_positive = .false.
+      end if
+      if ((xbdot(i) > 0.0e0_wp) .and. (.not. was_positive)) then
+        xbdot_zeros = xbdot_zeros + 1
+        was_positive = .true.
+      end if
+    end do
+    if (xbdot_zeros > 0) then
+      this%exit_status = fail_xdot_wiggles
+      return
+    end if
 
   end subroutine clip_bounce
 
@@ -1754,6 +1784,10 @@ contains
         write(*,*) "either of those is a saddle point."
       case (fail_apply_blending)
         write(*,*) "Problem with sizes of arrays in apply_blending."
+      case (fail_xdot_wiggles)
+        write(*,*) "xdot is not monothonically increasing, but wiggles"
+        write(*,*) "around. Usually this happens if the clipping of the"
+        write(*,*) "bounce was unsuccessful. Try to decrease rho_max_fac."
       case (status_maxiter)
         write(*,*) "Maximum number of iterations have been performed"
         write(*,*) "before the convergence condition was satisfied."
