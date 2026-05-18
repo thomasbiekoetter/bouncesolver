@@ -61,7 +61,11 @@ contains
     real(wp) :: res
 
     if (abs(x) > 1.0e-20_wp) then
-      res = sqrt(2.0e0_wp / (pi * x)) * sinh(x)
+      if (abs(x) < 1.0e2_wp) then
+        res = sqrt(2.0e0_wp / (pi * x)) * sinh(x)
+      else
+        res = 1.0e42_wp ! Apprx. value at x = 100
+      end if
     else
       res = sqrt(2.0e0_wp * x / pi)
     end if
