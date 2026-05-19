@@ -1256,6 +1256,13 @@ contains
     iclip = minval([i - 2 * buffer, n])
     this%ib_max = iclip
 
+    if ((iclip / real(n, wp)) < 0.4e0_wp) then
+      if (this%verbose_level > 0) then
+        write(*,*) "Clipped early. Reduce rho_max by a factor of two."
+      end if
+      this%rho_max = this%rho_max / 2
+    end if
+
     ! Check bounce after clipping
     ! by counting zeros of xbdot
     !   -> should be zero
