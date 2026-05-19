@@ -11,7 +11,7 @@ module bouncesolver__pdm
   use bouncesolver__specialfunction, only : bessel_mod_1
   use bouncesolver__specialfunction, only : bessel_mod_onehalf
   use odeint__rk4, only : integrate
-  use gradmin__descent, only : minimize
+  use gradmin__descent, only : fmin_descent => minimize
   use gradmin__derivatives, only : gradient
   use bspline_module, only : bspline_1d
   use bspline_module, only : get_status_message
@@ -386,6 +386,7 @@ contains
     real(wp) :: vmin
     real(wp) :: pmin(this%d - 1)
     real(wp) :: phi_pivot(this%d - 1)
+    integer :: minimize_status
 
     n = this%n
 
@@ -401,9 +402,10 @@ contains
         phi(i, :) = this%phi_true +  &
           x(i) * (this%phi_false - this%phi_true)
         phi1_pivot = phi(i, 1)
-        call minimize(  &
+        call fmin_descent(  &
           V, phi(i, 2 : this%d), pmin, vmin,  &
-          maxiter=1000, mode=1, eps_linesearch=1.0e-6_wp)
+          status=minimize_status,  &
+          maxiter=10000, mode=1, eps_linesearch=1.0e-6_wp)
         phi(i, 2 : this%d) = pmin
       end do
     end if
