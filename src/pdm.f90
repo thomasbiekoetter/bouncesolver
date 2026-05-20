@@ -405,7 +405,7 @@ contains
         call fmin_descent(  &
           V, phi(i, 2 : this%d), pmin, vmin,  &
           status=minimize_status,  &
-          maxiter=10000, mode=1, eps_linesearch=1.0e-6_wp)
+          maxiter=10000, mode=1)
         phi(i, 2 : this%d) = pmin
       end do
     end if
