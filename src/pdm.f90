@@ -767,7 +767,7 @@ contains
     integer :: n
     integer :: n_apprx
     integer :: n_num
-    real(wp) :: x0(this%d)
+    real(wp) :: x0(2)
     real(wp) :: xB
     real(wp) :: xT
     real(wp) :: del
