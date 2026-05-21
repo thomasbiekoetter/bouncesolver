@@ -44,6 +44,8 @@ module bouncesolver__pdm
   integer, parameter :: fail_find_x_barrier = -23
   integer, parameter :: fail_apply_blending = -24
   integer, parameter :: fail_xdot_wiggles = -25
+! integer, parameter :: fail_bounce_on_path_thin_notfit = -26
+  integer, parameter :: fail_bounce_on_path_thin_shooting = -27
   integer, parameter :: status_maxiter = 1
 
   abstract interface
@@ -848,6 +850,13 @@ contains
           del = (del_max + del_min) / 2.0e0_wp
       end select
 
+      ! Add check if del = del_max
+      if (del >= 100.0e0_wp - 1.0e-4_wp) then
+        if (this%verbose_level >= 1) write(*,*) del, del_max
+        this%exit_status = fail_bounce_on_path_thin_shooting
+        return
+      end if
+
       ! Determine rho-value where we switch to numerical
       r = this%rho_max / 1.0e8_wp
       r_min = 1.0e-2_wp * real(this%rho_max / n, wp)
@@ -861,13 +870,21 @@ contains
         r = (r_max + r_min) / 2.0e0_wp
       end do
 
+!     write(*,*) r, this%rho_max, del, x_eps, x_approx(r)
+!     if (r >= this%rho_max * 0.8e0_wp) then
+!       if (this%verbose_level >= 1) write(*,*) r, this%rho_max
+!       this%exit_status = fail_bounce_on_path_thin_notfit
+!       return
+!     end if
+
       ! Check if x_eps = x_approx(r), otherwise
       ! already x(r_min) > x_eps
       if (.not. is_equal(x_eps, x_approx(r), eps=1.0e-4_wp)) then
-        if (this%verbose_level >= 2) write(*,*) x_eps, x_approx(r)
+        if (this%verbose_level >= 1) write(*,*) x_eps, x_approx(r)
         this%exit_status = fail_bounce_on_path_thin_init
         return
       end if
+
 
       ! Avoid integrating until rho_max analytically
       if (r > 0.9e0_wp * this%rho_max) then
@@ -1279,6 +1296,7 @@ contains
       end if
     end do
     if (xbdot_zeros > 0) then
+      if (this%verbose_level >= 1) write(*,*) xbdot_zeros
       this%exit_status = fail_xdot_wiggles
       return
     end if
@@ -1804,6 +1822,13 @@ contains
         write(*,*) "xdot is not monothonically increasing, but wiggles"
         write(*,*) "around. Usually this happens if the clipping of the"
         write(*,*) "bounce was unsuccessful. Try to decrease rho_max_fac."
+!     case (fail_bounce_on_path_thin_notfit)
+!       write(*,*) "The rho-value of the stich point would be close to or"
+!       write(*,*) "larger than rho_max. Cannot construct the analytic"
+!       write(*,*) "part of bounce because does not fit in rho range."
+!       write(*,*) "You can try to increase rho_max_fac."
+      case (fail_bounce_on_path_thin_shooting)
+        write(*,*) "Always undershot in _thin. This shouldn't happen."
       case (status_maxiter)
         write(*,*) "Maximum number of iterations have been performed"
         write(*,*) "before the convergence condition was satisfied."
