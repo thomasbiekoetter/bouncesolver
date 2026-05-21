@@ -46,19 +46,14 @@ program bouncesolver__test_pdm_thickwalled
     init_path_mode=2,  &
     maxiter=40)
 
-  call pd%print_exit_status()
-
-  call csv_x_of_rho(pd, "plots/tests/thick_walled/x_of_rho.csv")
-
-  call csv_pot_of_rho(pd, "plots/tests/thick_walled/pot_of_rho.csv")
-
-  call csv_pot_of_x(pd, "plots/tests/thick_walled/pot_of_x.csv")
-
-  call csv_phi_of_rho(pd, "plots/tests/thick_walled/phi_of_rho.csv")
-
-  call csv_phi_of_x(pd,  "plots/tests/thick_walled/phi_of_x.csv")
-
-  call csv_forces_of_x(pd,  "plots/tests/thick_walled/forces_of_x.csv")
+  if (pd%exit_status >= 0) then
+    call csv_x_of_rho(pd, "plots/tests/thick_walled/x_of_rho.csv")
+    call csv_pot_of_rho(pd, "plots/tests/thick_walled/pot_of_rho.csv")
+    call csv_pot_of_x(pd, "plots/tests/thick_walled/pot_of_x.csv")
+    call csv_phi_of_rho(pd, "plots/tests/thick_walled/phi_of_rho.csv")
+    call csv_phi_of_x(pd,  "plots/tests/thick_walled/phi_of_x.csv")
+    call csv_forces_of_x(pd,  "plots/tests/thick_walled/forces_of_x.csv")
+  end if
 
 contains
 
