@@ -46,6 +46,7 @@ module bouncesolver__pdm
   integer, parameter :: fail_xdot_wiggles = -25
 ! integer, parameter :: fail_bounce_on_path_thin_notfit = -26
   integer, parameter :: fail_bounce_on_path_thin_shooting = -27
+  integer, parameter :: fail_check_minima = -28
   integer, parameter :: status_maxiter = 1
 
   abstract interface
@@ -138,6 +139,7 @@ module bouncesolver__pdm
     procedure, private :: reparam_path
     procedure, private :: apply_blending
     procedure, public :: print_exit_status
+    procedure, private :: check_minima
   end type solver
 
   interface solver
@@ -184,6 +186,13 @@ contains
     this%V => V
     this%phi_false = phi_false
     this%phi_true = phi_true
+
+    call this%check_minima()
+    if (this%exit_status /= solver_status_ok) then
+      call this%print_exit_status()
+      return
+    end if
+
     if (present(alpha)) then
       if ((alpha < 2) .or. (alpha > 3)) then
         this%exit_status = fail_solver_alpha
@@ -336,6 +345,27 @@ contains
     end if
 
   end function create_solver
+
+  subroutine check_minima(this)
+
+    class(solver), intent(inout) :: this
+
+    integer :: i
+    logical :: are_same
+
+    ! Put here tests for minima
+
+    ! Are they the same?
+    are_same = .true.
+    do i = 1, this%d
+      if (.not. is_equal(this%phi_true(i), this%phi_false(i), eps=1.0e-8_wp)) then
+        are_same = .false.
+        exit
+      end if
+    end do
+    if (are_same) this%exit_status = fail_check_minima
+
+  end subroutine check_minima
 
   subroutine allocate_arrays(this)
 
@@ -1829,6 +1859,9 @@ contains
 !       write(*,*) "You can try to increase rho_max_fac."
       case (fail_bounce_on_path_thin_shooting)
         write(*,*) "Always undershot in _thin. This shouldn't happen."
+      case (fail_check_minima)
+        write(*,*) "The true and false minima given to the solver are"
+        write(*,*) "identical. Cannot find bounce."
       case (status_maxiter)
         write(*,*) "Maximum number of iterations have been performed"
         write(*,*) "before the convergence condition was satisfied."
