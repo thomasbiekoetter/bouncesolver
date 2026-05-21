@@ -1,4 +1,4 @@
-program bouncesolver__test_pdm_thickwalled
+program bouncesolver__test_pdm_thickwalledstraight
 
   use bouncesolver__config, only : wp
   use bouncesolver__config, only : fmt
@@ -43,22 +43,22 @@ program bouncesolver__test_pdm_thickwalled
 !   deform_eps=1.0e-1_wp,  &
     smoothing=.true.,  &
     rho_max_fac=40.0e0_wp,  &
-    init_path_mode=2,  &
+    init_path_mode=1,  &
     maxiter=40)
 
   call pd%print_exit_status()
 
-  call csv_x_of_rho(pd, "plots/tests/thick_walled/x_of_rho.csv")
+  call csv_x_of_rho(pd, "plots/tests/thick_walled/straight/x_of_rho.csv")
 
-  call csv_pot_of_rho(pd, "plots/tests/thick_walled/pot_of_rho.csv")
+  call csv_pot_of_rho(pd, "plots/tests/thick_walled/straight/pot_of_rho.csv")
 
-  call csv_pot_of_x(pd, "plots/tests/thick_walled/pot_of_x.csv")
+  call csv_pot_of_x(pd, "plots/tests/thick_walled/straight/pot_of_x.csv")
 
-  call csv_phi_of_rho(pd, "plots/tests/thick_walled/phi_of_rho.csv")
+  call csv_phi_of_rho(pd, "plots/tests/thick_walled/straight/phi_of_rho.csv")
 
-  call csv_phi_of_x(pd,  "plots/tests/thick_walled/phi_of_x.csv")
+  call csv_phi_of_x(pd,  "plots/tests/thick_walled/straight/phi_of_x.csv")
 
-  call csv_forces_of_x(pd,  "plots/tests/thick_walled/forces_of_x.csv")
+  call csv_forces_of_x(pd,  "plots/tests/thick_walled/straight/forces_of_x.csv")
 
 contains
 
@@ -115,7 +115,7 @@ contains
     call f%initialize(verbose=.true.)
 
     call f%open(  &
-      "plots/tests/thick_walled/pot_of_phi1_phi2.csv",  &
+      "plots/tests/thick_walled/straight/pot_of_phi1_phi2.csv",  &
       n_cols=3,  &
       status_ok=status_ok)
 
@@ -135,4 +135,4 @@ contains
 
   end subroutine export_potential
 
-end program bouncesolver__test_pdm_thickwalled
+end program bouncesolver__test_pdm_thickwalledstraight

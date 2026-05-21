@@ -34,6 +34,10 @@ name = "pdm_thickwalled"
 source-dir = "test"
 main = "pdm_thickwalled.f90"
 [[test]]
+name = "pdm_thickwalledstraight"
+source-dir = "test"
+main = "pdm_thickwalledstraight.f90"
+[[test]]
 name = "cxsm"
 source-dir = "test"
 main = "cxsm.f90"
