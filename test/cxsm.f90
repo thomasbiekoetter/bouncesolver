@@ -14,13 +14,14 @@ program bouncesolver__test_cxsm
   use cxsm__potential_threedim, only : cxsm3D
   use cxsm__vacstruc_temperatures, only : get_Tcrit
   use cxsm__vacstruc_phases, only : phase
+  use cxsm__vacstruc_temperatures, only : get_Tnuc
   use csv_module
 
   implicit none
 
-  real(wp), parameter :: ms = 47.0e0_wp
+  real(wp), parameter :: ms = 60.0e0_wp
   real(wp), parameter :: lams = 1.0e0_wp
-  real(wp), parameter :: lamhs = 0.76e0_wp
+  real(wp), parameter :: lamhs = 0.8e0_wp
 
   type(solver) :: pd
   type(cxsm3D) :: pot
@@ -32,57 +33,103 @@ program bouncesolver__test_cxsm
   real(wp) :: xF(2)
   real(wp) :: xmin(2)
   real(wp) :: Vmin
+  real(wp) :: S
+  real(wp) :: Tnuc
 
   pot = cxsm3D(ms, lams, lamhs)
 
-  ! Temperature
   call get_Tcrit(  &
     pot, Tcrit,  &
     ewsb_phase=ewsb_phase,  &
     singlet_phase=singlet_phase)
-  write(*,*) "Tcrit =", Tcrit
 
-  T = 50.318e0_wp
-  write(*,*) "Computing bounce at T =", T
+  write(*,*)
+  write(*,*) "Tcrit =", Tcrit
+  write(*,*)
+
+  T = 63.0e0_wp
 
   call export_potential(  &
     [-1.0e0_wp, 40.0e0_wp],  &
     [-1.0e0_wp, 40.0e0_wp],  &
     200)
 
-  ! True minimum
+  write(*,*) "Computing bounce at T =", T
+  write(*,*)
+
   call ewsb_phase%get_x_at_T(T, xT)
   call minimize(V, xT, xmin, Vmin, maxiter=10000, mode=1)
   xT = xmin
-  write(*,*) "    xT =", xT
-  write(*,*) " V(xT) =", V(xT)
+  write(*,*) "  True minimum:"
+  write(*,*) "       xT =", xT
+  write(*,*) "    V(xT) =", V(xT)
+  write(*,*)
 
-  ! False minimum
   call singlet_phase%get_x_at_T(T, xF)
   call minimize(V, xF, xmin, Vmin, maxiter=10000, mode=1)
   xF = xmin
-  write(*,*) "    xF =", xF
-  write(*,*) " V(xF) =", V(xF)
+  write(*,*) "  False minimum:"
+  write(*,*) "          xF =", xF
+  write(*,*) "    V(xF, T) =", V(xF)
+  write(*,*)
 
+  write(*,*) "Computing bounce with straight initial path."
+  pd = solver(  &
+    2, V, xF, xT,  &
+    rho_max_fac=80.0e0_wp,  &
+    n_odeint=2000,  &
+    deform_eps=2.0e-2_wp,  &
+    Rforce_threshold=5.0e-2_wp,  &
+    maxiter=40,  &
+    init_path_mode=1,  &
+    barrier_buffer=1.0e-5_wp,  &
+    verbose_level=0)
+  if (pd%exit_status >= 0) then
+    call csv_x_of_rho(pd, "plots/tests/cxsm/straight/x_of_rho.csv")
+    call csv_pot_of_rho(pd, "plots/tests/cxsm/straight/pot_of_rho.csv")
+    call csv_pot_of_x(pd, "plots/tests/cxsm/straight/pot_of_x.csv")
+    call csv_phi_of_rho(pd, "plots/tests/cxsm/straight/phi_of_rho.csv")
+    call csv_phi_of_x(pd,  "plots/tests/cxsm/straight/phi_of_x.csv")
+    call csv_forces_of_x(pd,  "plots/tests/cxsm/straight/forces_of_x.csv")
+    write(*,*) "  -> S =", pd%S
+  else
+    write(*,*) "  FAILED"
+  end if
+  write(*,*)
+
+
+  write(*,*) "Computing bounce with shallowest initial path."
   pd = solver(  &
     2, V, xF, xT,  &
     rho_max_fac=40.0e0_wp,  &
     n_odeint=2000,  &
     deform_eps=2.0e-3_wp,  &
     Rforce_threshold=5.0e-2_wp,  &
-    maxiter=10,  &
+    maxiter=40,  &
     init_path_mode=2,  &
     barrier_buffer=1.0e-5_wp,  &
-    verbose_level=1)
+    verbose_level=0)
+  if (pd%exit_status >= 0) then
+  call csv_x_of_rho(pd, "plots/tests/cxsm/shallow/x_of_rho.csv")
+  call csv_pot_of_rho(pd, "plots/tests/cxsm/shallow/pot_of_rho.csv")
+  call csv_pot_of_x(pd, "plots/tests/cxsm/shallow/pot_of_x.csv")
+  call csv_phi_of_rho(pd, "plots/tests/cxsm/shallow/phi_of_rho.csv")
+  call csv_phi_of_x(pd,  "plots/tests/cxsm/shallow/phi_of_x.csv")
+  call csv_forces_of_x(pd,  "plots/tests/cxsm/shallow/forces_of_x.csv")
+    write(*,*) "  -> S =", pd%S
+  else
+    write(*,*) "  FAILED"
+  end if
+  write(*,*)
 
-  if (pd%exit_status >= 0) write(*,*) "S = ", pd%S
-
-  call csv_x_of_rho(pd, "plots/tests/cxsm/x_of_rho.csv")
-  call csv_pot_of_rho(pd, "plots/tests/cxsm/pot_of_rho.csv")
-  call csv_pot_of_x(pd, "plots/tests/cxsm/pot_of_x.csv")
-  call csv_phi_of_rho(pd, "plots/tests/cxsm/phi_of_rho.csv")
-  call csv_phi_of_x(pd,  "plots/tests/cxsm/phi_of_x.csv")
-  call csv_forces_of_x(pd,  "plots/tests/cxsm/forces_of_x.csv")
+  write(*,*) "Finding nucleation tempreature:"
+  call get_Tnuc(  &
+    pot, Tnuc,  &
+    S=S,  &
+    Tcrit=Tcrit,  &
+    ewsb_phase=ewsb_phase,  &
+    singlet_phase=singlet_phase)
+  write(*,*) "  -> Tnuc =", Tnuc
 
 contains
 
