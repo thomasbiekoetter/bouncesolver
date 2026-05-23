@@ -777,6 +777,7 @@ contains
     class(solver), intent(inout) :: this
 
     integer :: i
+    real(wp) :: phi(this%d)
 
     do i = 1, this%n
       call this%get_index_from_x(  &
@@ -787,7 +788,8 @@ contains
     call this%calc_phi_on_bounce()
 
     do i = 1, this%n
-      this%pot(i) = this%V(this%phi(i, :))
+      phi = this%phi(i, :)
+      this%pot(i) = this%V(phi)
     end do
 
   end subroutine reparam_path
@@ -1233,13 +1235,19 @@ contains
     real(wp) :: V4
     integer :: i
     real(wp) :: buffer
+    real(wp) :: phi(this%d)
+    real(wp) :: phi_true(this%d)
+    real(wp) :: phi_false(this%d)
 
-    buffer = this%barrier_buffer * (this%V(this%phi(this%n, :)) - this%V(this%phi(1, :)))
+    phi_false = this%phi(this%n, :)
+    phi_true = this%phi(1, :)
+    buffer = this%barrier_buffer * (this%V(phi_false) - this%V(phi_true))
 
-    V1 = this%V(this%phi(1, :))
+    V1 = this%V(phi_true)
     ! Not start close to phi_true here
     do i = this%n / 10, this%n
-      V2 = this%V(this%phi(i, :))
+      phi = this%phi(i, :)
+      V2 = this%V(phi)
       if (V2 > V1) then
         V1 = V2
       else
@@ -1574,6 +1582,7 @@ contains
     real(wp) :: x(this%n)
     real(wp) :: dx(this%n)
     real(wp) :: dphidx
+    real(wp) :: p(this%d)
 
     d = this%d
 
@@ -1700,7 +1709,8 @@ contains
     this%x = x
     this%phi = phi
     do i = 1, n
-      this%pot(i) = this%V(this%phi(i, :))
+      p = this%phi(i, :)
+      this%pot(i) = this%V(p)
     end do
 
     ! Reduce rho_max if initial guess
