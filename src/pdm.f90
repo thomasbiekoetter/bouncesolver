@@ -832,6 +832,7 @@ contains
 
     integer :: i
     integer :: k
+    real(wp) :: del_max_init
 
     n = this%n
     k = 40 * int(n / 2000)
@@ -843,7 +844,8 @@ contains
 
     nuinv = 2 / (this%alpha - 1)
 
-    del_max = 50.0e0_wp ! -> x(0) = xT - 0 (xB - xT) ~ xT
+    del_max_init = 50.0e0_wp
+    del_max = del_max_init ! -> x(0) = xT - 0 (xB - xT) ~ xT
     del_min = 3.0e0_wp   ! -> x(0) = xT - 1 (xB - xT) ~ xB
 
     xB = this%find_x_barrier()
@@ -883,7 +885,7 @@ contains
       end select
 
       ! Add check if del = del_max
-      if (del >= 100.0e0_wp - 1.0e-4_wp) then
+      if (del >= del_max_init - 1.0e-4_wp) then
         if (this%verbose_level >= 1) write(*,*) del, del_max
         this%exit_status = fail_bounce_on_path_thin_shooting
         return
