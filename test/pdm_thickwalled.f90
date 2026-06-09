@@ -17,7 +17,7 @@ program bouncesolver__test_pdm_thickwalled
 
   real(wp), parameter :: a = 1.8e0_wp
   real(wp), parameter :: b = 0.2e0_wp
-  real(wp), parameter :: c = 0.06e0_wp
+  real(wp), parameter :: c = 0.1e0_wp
 
   type(solver) :: pd
   integer, parameter :: d = 2
