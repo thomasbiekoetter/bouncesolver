@@ -16,6 +16,7 @@ module bouncesolver__pdm
   use bspline_module, only : bspline_1d
   use bspline_module, only : get_status_message
   use cubicsplines__smoothing, only : add_viscosity
+  use linalg_matrices_diagonalize, only : svd_square
   use ieee_arithmetic, only : ieee_is_nan
 
   implicit none
@@ -417,12 +418,30 @@ contains
     real(wp) :: phi1_pivot
     real(wp) :: vmin
     real(wp) :: pmin(this%d - 1)
-    real(wp) :: phi_pivot(this%d - 1)
+    real(wp) :: phi_pivot(this%d)
+    real(wp) :: t1(this%d)
+    real(wp) :: t2(this%d)
+    real(wp) :: t(this%d)
+    real(wp) :: tanvec(this%d)
+    real(wp) :: proj(this%d, this%d)
+    real(wp) :: evproj(this%d)
+    real(wp) :: leftproj(this%d, this%d)
+    real(wp) :: rightproj(this%d, this%d)
+    integer :: j
+    integer :: k
+    integer :: svd_kont
+    integer :: svd_order
+    real(wp) :: orthobasis(this%d - 1, this%d)
+    real(wp) :: restrictedx0(this%d - 1)
     integer :: minimize_status
 
     n = this%n
 
     x = linspace(0.0e0_wp, 1.0e0_wp, n)
+
+    svd_order = 1
+    svd_kont = 1
+    restrictedx0 = 0.0e0_wp
 
     if (mode == 1) then ! Straight path
       do i = 1, n
@@ -439,6 +458,74 @@ contains
           status=minimize_status,  &
           maxiter=10000, mode=1)
         phi(i, 2 : this%d) = pmin
+      end do
+    else if (mode == 3) then ! Path along orthogonal well
+      do i = 1, n
+        phi_pivot = this%phi_true +  &
+          x(i) * (this%phi_false - this%phi_true)
+        ! Compute tangent unit vector
+        if (i < n) then
+          t1 = this%phi_true +  &
+            x(i) * (this%phi_false - this%phi_true)
+          t2 = this%phi_true +  &
+            x(i + 1) * (this%phi_false - this%phi_true)
+        else
+          t1 = this%phi_true +  &
+            x(i - 1) * (this%phi_false - this%phi_true)
+          t2 = this%phi_true +  &
+            x(i) * (this%phi_false - this%phi_true)
+        end if
+        t = t2 - t1
+        t = t / norm2(t)
+        ! Compute projector
+        proj = 0.0e0_wp
+        do j = 1, this%d
+          do k = 1, this%d
+            if (j == k) proj(j, k) = 1.0e0_wp
+            proj(j, k) = proj(j, k) - t(j) * t(k)
+          end do
+        end do
+        call svd_square(  &
+          this%d,  &
+          proj,  &
+          evproj,  &
+          leftproj,  &
+          rightproj,  &
+          svd_kont,  &
+          svd_order)
+        ! Check eigenvalues
+        do j = 1, this%d - 1
+          if (.not. is_equal(evproj(j), 1.0e0_wp)) then
+            write(*, *) "cadsscsd"
+            call exit
+          end if
+        end do
+        if (.not. is_equal(evproj(this%d), 0.0e0_wp)) then
+          write(*, *) "adadxsda"
+          call exit
+        end if
+        ! First d - 1 columns of leftproj (the columns belonging
+        ! to the eigenvalues equal to 1) are the eigenvectors
+        ! of the orthogonal basis
+        do j = 1, this%d - 1
+          orthobasis(j, :) = leftproj(j, :)
+        end do
+        ! Check that eigenvectors are orthogonal to t
+        do j = 1, this%d - 1
+          if (.not. is_equal(dot_product(orthobasis(j, :), t), 0.0e0_wp)) then
+            write(*,*) "crtythrt"
+            call exit
+          end if
+        end do
+        call fmin_descent(  &
+          restrictedV, restrictedx0,  &
+          pmin, vmin,  &
+          status=minimize_status,  &
+          maxiter=10000, mode=1)
+        phi(i, :) = phi_pivot
+        do j = 1, this%d - 1
+          phi(i, :) = phi(i, :) + pmin(j) * orthobasis(j, :)
+        end do
       end do
     end if
 
@@ -467,6 +554,22 @@ contains
     this%pot = pot
 
     contains
+
+      function restrictedV(x) result(y)
+
+        real(wp), intent(in) :: x(:)
+        real(wp) :: y
+
+        integer :: i
+        real(wp) :: p(this%d)
+
+        p = phi_pivot
+        do i = 1, this%d - 1
+          p = p + x(i) * orthobasis(i, :)
+        end do
+        y = this%V(p)
+
+      end function restrictedV
 
       function V(x) result(y)
 
