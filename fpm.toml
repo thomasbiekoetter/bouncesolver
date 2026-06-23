@@ -40,7 +40,11 @@ main = "pdm_thickwalledstraight.f90"
 name = "cxsm"
 source-dir = "test"
 main = "cxsm.f90"
-[executable.dependencies]
+[[test]]
+name = "initpaths"
+source-dir = "test"
+main = "initpaths.f90"
+[test.dependencies]
 cxsm = { git="git@gitlab.com:gws-in-the-cxsm/cxsm.git", profile="release" }
 [features]
 debug.flags = "-fPIC -O0 -g "
