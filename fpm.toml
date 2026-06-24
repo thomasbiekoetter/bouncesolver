@@ -37,6 +37,10 @@ name = "pdm_thickwalledstraight"
 source-dir = "test"
 main = "pdm_thickwalledstraight.f90"
 [[test]]
+name = "pdm_thickwalled_initpaths"
+source-dir = "test"
+main = "pdm_thickwalled_initpaths.f90"
+[[test]]
 name = "cxsm"
 source-dir = "test"
 main = "cxsm.f90"
