@@ -10,7 +10,7 @@ module bouncesolver__pdm
   use bouncesolver__util, only : is_equal
   use bouncesolver__specialfunction, only : bessel_mod_1
   use bouncesolver__specialfunction, only : bessel_mod_onehalf
-  use odeint__rk4, only : integrate
+  use odeint__integrate, only : integrate_ode => integrate
   use gradmin__descent, only : fmin_descent => minimize
   use gradmin__derivatives, only : gradient
   use bspline_module, only : bspline_1d
@@ -810,13 +810,14 @@ contains
       x0(1) = x1
       x0(2) = 0.0e0_wp
 
-      call integrate(  &
+      call integrate_ode(  &
         dxdrho,  &
         x0,  &
         rho_min,  &
         rho_max,  &
         n,  &
-        rho, x)
+        rho, x,  &
+        method="rk4")
 
       if (overshot) then
         over_under_flag = 1
@@ -1060,13 +1061,14 @@ contains
         return
       end if
 
-      call integrate(  &
+      call integrate_ode(  &
         dxdrho,  &
         x0,  &
         rho_num_min,  &
         rho_num_max,  &
         n_num,  &
-        rho_num, x_num)
+        rho_num, x_num,  &
+        method="rk4")
 
       if (overshot) then
         over_under_flag = 1

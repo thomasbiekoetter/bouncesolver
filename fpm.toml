@@ -18,7 +18,7 @@ implicit-external = false
 source-form = "free"
 [dependencies]
 gradmin = { git = "https://gitlab.com/thomas.biekoetter/gradmin.git", profile = "release" }
-odeint = { git = "https://gitlab.com/thomas.biekoetter/odeint.git" }
+odeint = { git = "https://github.com/thomasbiekoetter/odeint.git", profile="release" }
 linalg = { git = "https://gitlab.com/thomas.biekoetter/fpm-linalg.git" }
 cubicsplines = { git = "https://github.com/thomasbiekoetter/cubicsplines" }
 bspline-fortran = { git="https://github.com/jacobwilliams/bspline-fortran.git" }
