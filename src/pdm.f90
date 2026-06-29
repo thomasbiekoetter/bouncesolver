@@ -1913,6 +1913,8 @@ contains
 
     class(solver), intent(inout) :: this
 
+    if (this%verbose_level < 0) return
+
     select case (this%exit_status)
       case (solver_status_ok)
         write(*,*) "No errors. Converged corectly."
