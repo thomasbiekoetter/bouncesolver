@@ -106,16 +106,52 @@ program bouncesolver__test_cxsm
     deform_eps=2.0e-3_wp,  &
     Rforce_threshold=5.0e-2_wp,  &
     maxiter=40,  &
-    init_path_mode=2,  &
+    init_path_mode=3,  &
     barrier_buffer=1.0e-5_wp,  &
     verbose_level=0)
   if (pd%exit_status >= 0) then
-  call csv_x_of_rho(pd, "plots/tests/cxsm/shallow/x_of_rho.csv")
-  call csv_pot_of_rho(pd, "plots/tests/cxsm/shallow/pot_of_rho.csv")
-  call csv_pot_of_x(pd, "plots/tests/cxsm/shallow/pot_of_x.csv")
-  call csv_phi_of_rho(pd, "plots/tests/cxsm/shallow/phi_of_rho.csv")
-  call csv_phi_of_x(pd,  "plots/tests/cxsm/shallow/phi_of_x.csv")
-  call csv_forces_of_x(pd,  "plots/tests/cxsm/shallow/forces_of_x.csv")
+    call csv_x_of_rho(pd, "plots/tests/cxsm/shallow/x_of_rho.csv")
+    call csv_pot_of_rho(pd, "plots/tests/cxsm/shallow/pot_of_rho.csv")
+    call csv_pot_of_x(pd, "plots/tests/cxsm/shallow/pot_of_x.csv")
+    call csv_phi_of_rho(pd, "plots/tests/cxsm/shallow/phi_of_rho.csv")
+    call csv_phi_of_x(pd,  "plots/tests/cxsm/shallow/phi_of_x.csv")
+    call csv_forces_of_x(pd,  "plots/tests/cxsm/shallow/forces_of_x.csv")
+    write(*,*) "  -> S =", pd%S
+  else
+    write(*,*) "  FAILED"
+  end if
+  write(*,*)
+
+  write(*,*) "Computing bounce with straight initial path and no path deformation."
+  pd = solver(  &
+    2, V, xF, xT,  &
+    rho_max_fac=40.0e0_wp,  &
+    n_odeint=2000,  &
+    deform_eps=2.0e-3_wp,  &
+    Rforce_threshold=5.0e-2_wp,  &
+    maxiter=1,  &
+    init_path_mode=1,  &
+    barrier_buffer=1.0e-5_wp,  &
+    verbose_level=0)
+  if (pd%exit_status >= 0) then
+    write(*,*) "  -> S =", pd%S
+  else
+    write(*,*) "  FAILED"
+  end if
+  write(*,*)
+
+  write(*,*) "Computing bounce with shallowest initial path and no path deformation."
+  pd = solver(  &
+    2, V, xF, xT,  &
+    rho_max_fac=40.0e0_wp,  &
+    n_odeint=2000,  &
+    deform_eps=2.0e-3_wp,  &
+    Rforce_threshold=5.0e-2_wp,  &
+    maxiter=1,  &
+    init_path_mode=3,  &
+    barrier_buffer=1.0e-5_wp,  &
+    verbose_level=0)
+  if (pd%exit_status >= 0) then
     write(*,*) "  -> S =", pd%S
   else
     write(*,*) "  FAILED"
