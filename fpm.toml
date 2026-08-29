@@ -21,7 +21,7 @@ gradmin = { git = "https://gitlab.com/thomas.biekoetter/gradmin.git", profile = 
 odeint = { git = "https://github.com/thomasbiekoetter/odeint.git", profile="release" }
 linalg = { git = "https://gitlab.com/thomas.biekoetter/fpm-linalg.git" }
 cubicsplines = { git = "https://github.com/thomasbiekoetter/cubicsplines" }
-bspline-fortran = { git="https://github.com/jacobwilliams/bspline-fortran.git" }
+bspline-fortran = { git = "https://github.com/thomasbiekoetter/bspline-fortran.git" }
 csv-fortran = { git="https://github.com/jacobwilliams/csv-fortran.git" }
 openmp="*"
 [[executable]]
